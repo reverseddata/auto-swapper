@@ -1,0 +1,18 @@
+# Keep secrets and local state out of the build context (and so out of any image).
+.env
+.env.*
+config.toml
+data/
+logs/
+*.sqlite3
+*.sqlite3-*
+*.har
+.git/
+.venv/
+venv/
+build/
+dist/
+**/__pycache__/
+**/*.egg-info/
+.pytest_cache/
+tests/

@@ -1,0 +1,25 @@
+# systemd unit. install.sh copies this to /etc/systemd/system/ with paths filled in.
+[Unit]
+Description=MM2 BloxSwaps restock claimer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__DIR__
+EnvironmentFile=__DIR__/.env
+ExecStart=__DIR__/.venv/bin/mm2sniper run
+Restart=always
+RestartSec=10
+# Give in-flight Discord messages time to flush on stop.
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=__DIR__/data __DIR__/logs
+
+[Install]
+WantedBy=multi-user.target

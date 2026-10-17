@@ -1,0 +1,33 @@
+# Copy to config.toml. Settings in .env override the same keys here.
+#
+# Each [[watch]] entry is one item. Names match BloxSwaps' item names, case and
+# punctuation don't matter, and "C. Seer" == "Chroma Seer". Plain and chroma are
+# different items. You can also use the BloxSwaps slug (the ?item= in the URL).
+#
+# side:
+#   withdraw  claim it when the bots RESTOCK it (stock went from 0 to 1+)
+#   deposit   claim a deposit slot when one OPENS (slots went from 0 to 1+)
+#   both      either
+# max_price (withdraw) / min_price (deposit) are optional, in BloxSwaps value.
+
+[[watch]]
+item = "Harvester"
+side = "withdraw"
+max_price = 330
+
+[[watch]]
+item = "Chroma Seer"
+side = "deposit"
+min_price = 30
+
+[[watch]]
+item = "Icepiercer"
+side = "both"
+max_price = 50   # claim mode needs a limit for each side an entry covers
+min_price = 10
+
+# Optional extras (defaults shown):
+# discord_username = "MM2 Sniper"
+# alert_cooldown_seconds = 900        # repeat "available" pings for the same thing at most this often
+# request_timeout_seconds = 20
+# claim_status_interval_seconds = 30  # how often to check a held claim

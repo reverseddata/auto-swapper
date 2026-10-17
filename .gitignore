@@ -1,0 +1,20 @@
+# secrets and local state: never commit
+.env
+.env.*
+!.env.example
+config.toml
+data/
+logs/
+*.sqlite3
+*.sqlite3-*
+*.har
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/

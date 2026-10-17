@@ -1,0 +1,14 @@
+# Watchlist used by the tests and by `mm2sniper dry-run`.
+[[watch]]
+item = "Harvester"
+side = "withdraw"
+max_price = 400
+
+[[watch]]
+item = "C. Seer"
+side = "deposit"
+min_price = 1
+
+[[watch]]
+item = "Icepiercer"
+max_price = 200

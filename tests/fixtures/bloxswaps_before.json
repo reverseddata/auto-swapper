@@ -1,0 +1,108 @@
+{
+ "success": true,
+ "data": [
+  {
+   "id": "id-harvester",
+   "slug": "harvester",
+   "displayName": "Harvester",
+   "rarity": "ANCIENT",
+   "chroma": false,
+   "type": "Gun",
+   "tradable": true,
+   "stockLimit": 5,
+   "appAvailableQuantity": 0,
+   "userAvailableQuantity": 5,
+   "image": "https://example.invalid/harvester.webp",
+   "currentPrices": {
+    "sellPrice": "312.9",
+    "buyPrice": "290.1",
+    "marketPrice": "290.1",
+    "demand": 3
+   }
+  },
+  {
+   "id": "id-chroma-seer",
+   "slug": "chroma-seer",
+   "displayName": "Seer",
+   "rarity": "GODLY",
+   "chroma": true,
+   "type": "Knife",
+   "tradable": true,
+   "stockLimit": 5,
+   "appAvailableQuantity": 0,
+   "userAvailableQuantity": 0,
+   "image": "https://example.invalid/chroma-seer.webp",
+   "currentPrices": {
+    "sellPrice": "33.6",
+    "buyPrice": "32",
+    "marketPrice": "32",
+    "demand": 3
+   }
+  },
+  {
+   "id": "id-seer",
+   "slug": "seer",
+   "displayName": "Seer",
+   "rarity": "GODLY",
+   "chroma": false,
+   "type": "Knife",
+   "tradable": true,
+   "stockLimit": 5,
+   "appAvailableQuantity": 2,
+   "userAvailableQuantity": 3,
+   "image": "https://example.invalid/seer.webp",
+   "currentPrices": {
+    "sellPrice": "3.2",
+    "buyPrice": "2.9",
+    "marketPrice": "2.9",
+    "demand": 3
+   }
+  },
+  {
+   "id": "id-icepiercer",
+   "slug": "icepiercer",
+   "displayName": "Icepiercer",
+   "rarity": "ANCIENT",
+   "chroma": false,
+   "type": "Gun",
+   "tradable": true,
+   "stockLimit": 5,
+   "appAvailableQuantity": 0,
+   "userAvailableQuantity": 2,
+   "image": "https://example.invalid/icepiercer.webp",
+   "currentPrices": {
+    "sellPrice": "180",
+    "buyPrice": "160",
+    "marketPrice": "160",
+    "demand": 3
+   }
+  },
+  {
+   "slug": "broken-no-prices",
+   "displayName": "Broken",
+   "appAvailableQuantity": "x"
+  },
+  {
+   "displayName": "no slug at all"
+  },
+  {
+   "id": "id-seer",
+   "slug": "seer",
+   "displayName": "Seer duplicate",
+   "rarity": "GODLY",
+   "chroma": false,
+   "type": "Knife",
+   "tradable": true,
+   "stockLimit": 5,
+   "appAvailableQuantity": 9,
+   "userAvailableQuantity": 9,
+   "image": "https://example.invalid/seer.webp",
+   "currentPrices": {
+    "sellPrice": "1",
+    "buyPrice": "1",
+    "marketPrice": "1",
+    "demand": 3
+   }
+  }
+ ]
+}
