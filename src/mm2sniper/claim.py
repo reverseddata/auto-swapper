@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -30,6 +31,9 @@ from .store import Hold, Store, utc_day
 
 log = logging.getLogger(__name__)
 SAFE_RETRIES = 2
+# The site assigns the bot and server a moment after the claim is created.
+HANDOFF_TRIES = 6
+HANDOFF_DELAY = 2.0
 
 
 def _now() -> datetime:
@@ -103,10 +107,57 @@ class ClaimEngine:
             outcome = await self._send(fresh, key)
             if outcome.status is ClaimStatus.UNKNOWN:
                 outcome = await self._reconcile(fresh, outcome)
+            if outcome.status is ClaimStatus.CLAIMED:
+                outcome = await self._complete_handoff(outcome)
             self._finish(fresh, key, outcome)
             if outcome.status is ClaimStatus.CLAIMED:
                 self._check_charged(fresh, watch, outcome)
             return outcome
+
+    async def _complete_handoff(self, outcome: ClaimOutcome) -> ClaimOutcome:
+        """Make sure the claim alert carries the join link. The create answer has no
+        bot or server yet, so ask the site for the trade a few times. Never changes
+        the claim status: failing here only means the link comes in a later alert."""
+        if (outcome.server_link or not outcome.claim_id
+                or not getattr(self.adapter, "supports_handoff", False)):
+            return outcome
+        for attempt in range(HANDOFF_TRIES):
+            try:
+                link, bot = await asyncio.wait_for(self.adapter.fetch_handoff(outcome.claim_id),
+                                                   self.s.request_timeout_seconds + 5)
+            except Exception as e:  # noqa: BLE001 - the claim itself already succeeded
+                log.debug("hand-off fetch failed: %s", e)
+                link = bot = ""
+            if link:
+                return replace(outcome, server_link=link, bot_name=bot or outcome.bot_name)
+            if attempt + 1 < HANDOFF_TRIES:
+                await asyncio.sleep(HANDOFF_DELAY)
+        log.warning("claim %s has no join link yet; it will follow", outcome.claim_id)
+        return outcome
+
+    async def _follow_up_handoff(self, row):
+        """A claim whose alert went out without a join link: send the link once known."""
+        try:
+            handoff = json.loads(row["handoff"] or "{}")
+        except ValueError:
+            return
+        if handoff.get("server_link") or not row["claim_id"] \
+                or not getattr(self.adapter, "supports_handoff", False):
+            return
+        try:
+            link, bot = await self.adapter.fetch_handoff(row["claim_id"])
+        except Exception as e:  # noqa: BLE001
+            log.debug("hand-off follow-up failed: %s", e)
+            return
+        listing = _listing_from_row(row)
+        if not link or listing is None:
+            return
+        handoff.update(server_link=link, bot_name=bot)
+        self.store.update_claim(row["idem_key"], ClaimStatus.CLAIMED, detail=row["detail"] or "",
+                                handoff=handoff)
+        self.notifier.claim_succeeded(listing, ClaimOutcome(
+            ClaimStatus.CLAIMED, row["claim_id"], "join link ready", server_link=link,
+            username=self.adapter.account, bot_name=bot))
 
     def _check_charged(self, listing: Listing, watch: WatchEntry, outcome: ClaimOutcome):
         """The claim request cannot lock a price. If the trade the site created is
@@ -250,6 +301,8 @@ class ClaimEngine:
             self.resume(f"trade for {hold.name} {state.value}",
                         level="ok" if state is ClaimStatus.COMPLETED else "warn")
             return False
+        if state is ClaimStatus.CLAIMED:
+            await self._follow_up_handoff(self.store.claim(hold.idem_key))
         return True
 
     async def _site_state(self, row) -> ClaimStatus:

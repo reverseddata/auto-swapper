@@ -283,3 +283,53 @@ def test_second_instance_cannot_take_the_lock(tmp_path):
         a.release()
     assert b.acquire()
     b.release()
+
+
+# ---------------------------------------------------------------- hand-off (found on a real claim)
+
+
+class LateHandoffAdapter(FakeAdapter):
+    """Like the real site: the create answer has no link; it appears on a later read."""
+    supports_handoff = True
+
+    def __init__(self, ls, links):
+        super().__init__(ls, claim_outcomes=[ClaimOutcome(ClaimStatus.CLAIMED, "trade-1",
+                                                           "created")])
+        self.links = list(links)
+
+    async def fetch_handoff(self, claim_id):
+        return self.links.pop(0) if self.links else ("", "")
+
+
+def test_claim_alert_waits_for_the_join_link(tmp_path, monkeypatch):
+    import mm2sniper.claim as claim_mod
+    monkeypatch.setattr(claim_mod, "HANDOFF_DELAY", 0)
+    l = harvester()
+    link = "https://www.roblox.com/games/start?placeId=142823291&gameInstanceId=srv"
+    a = LateHandoffAdapter([l], links=[("", ""), (link, "bot1")])
+    s = make_settings(tmp_path, "claim")
+    n = FakeNotifier()
+    out = run(ClaimEngine(s, Store(":memory:"), a, n).attempt(l, s.watch[0]))
+    assert out.status is ClaimStatus.CLAIMED
+    assert out.server_link == link and out.bot_name == "bot1"
+    claimed = [e for e in n.events if e[0] == "claimed"]
+    assert len(claimed) == 1 and claimed[0][2].server_link == link
+
+
+def test_late_join_link_is_sent_as_a_follow_up(tmp_path, monkeypatch):
+    import mm2sniper.claim as claim_mod
+    monkeypatch.setattr(claim_mod, "HANDOFF_DELAY", 0)
+    monkeypatch.setattr(claim_mod, "HANDOFF_TRIES", 1)
+    l = harvester()
+    link = "https://www.roblox.com/games/start?placeId=142823291&gameInstanceId=srv"
+    a = LateHandoffAdapter([l], links=[("", ""), (link, "bot1")])
+    a.claim_states = [ClaimStatus.CLAIMED]
+    s = make_settings(tmp_path, "claim")
+    n, store = FakeNotifier(), Store(":memory:")
+    eng = ClaimEngine(s, store, a, n)
+    assert run(eng.attempt(l, s.watch[0])).server_link == ""
+    assert run(eng.check_hold()) is True
+    claimed = [e for e in n.events if e[0] == "claimed"]
+    assert len(claimed) == 2 and claimed[1][2].server_link == link
+    import json as _json
+    assert _json.loads(store.recent_claims()[0]["handoff"])["server_link"] == link

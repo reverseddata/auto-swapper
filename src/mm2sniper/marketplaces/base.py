@@ -13,6 +13,8 @@ class MarketplaceAdapter(abc.ABC):
     # Account name the adapter read from its own session ("" if not known yet).
     # Shown in claim alerts, so the user never has to configure it.
     account: str = ""
+    # Can fetch_handoff() fill in join details after the claim answer?
+    supports_handoff: bool = False
 
     def __init__(self):
         self.status = MarketplaceStatus(self.name, self.capabilities)
@@ -46,6 +48,11 @@ class MarketplaceAdapter(abc.ABC):
         return ClaimOutcome(ClaimStatus.SKIPPED,
                             detail=self.capabilities.claim_unavailable_reason
                             or "claiming is not supported")
+
+    async def fetch_handoff(self, claim_id: str) -> tuple[str, str]:
+        """(join link, bot name) for a created claim, read fresh from the site.
+        ("", "") while the site has not assigned them yet."""
+        return "", ""
 
     async def reconcile_claim(self, listing: Listing) -> tuple[ClaimStatus, str | None]:
         """After an unclear answer: did our claim create something? Returns the state

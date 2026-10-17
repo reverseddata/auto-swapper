@@ -204,6 +204,9 @@ def _fingerprint(token: str) -> str:
 
 class BloxSwapsAdapter(MarketplaceAdapter):
     name = "bloxswaps"
+    # Verified 2026-10-18: the POST /trades answer has no bot or server yet; they
+    # appear on GET /trades/{id} a moment later (delivery.bot, delivery.server).
+    supports_handoff = True
 
     def __init__(self, http: HttpClient, *, token: str = "", timeout: float = 20.0,
                  secrets: dict[str, str] | None = None, session_path: Path | None = None):
@@ -407,6 +410,11 @@ class BloxSwapsAdapter(MarketplaceAdapter):
             return ClaimStatus.UNKNOWN
         state, _ = await self.reconcile_claim(listing)
         return state
+
+    async def fetch_handoff(self, claim_id: str) -> tuple[str, str]:
+        res = await self._authed("GET", f"{TRADES_URL}/{quote(str(claim_id), safe='')}")
+        trade = res.data.get("data") if isinstance(res.data, dict) else None
+        return handoff_from_trade(trade) if isinstance(trade, dict) else ("", "")
 
     async def reconcile_claim(self, listing: Listing) -> tuple[ClaimStatus, str | None]:
         """Look for an open trade holding this listing. Found: CLAIMED plus its id.
