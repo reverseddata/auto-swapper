@@ -1,3 +1,4 @@
+from dataclasses import replace
 import pytest
 
 import json
@@ -103,9 +104,10 @@ def test_session_without_username_claims_nothing():
 
 
 def test_site_refusal_is_rejected_not_unknown():
-    out = run(adapter(FakeHttp(ME, BadResponse("HTTP 400", 400))).claim_listing(
+    out = run(adapter(FakeHttp(ME, BadResponse("HTTP 400", 400),
+                               BadResponse("HTTP 400: no", 400))).claim_listing(
         listing("withdraw"), "k"))
-    assert out.status is ClaimStatus.REJECTED
+    assert out.status is ClaimStatus.REJECTED and "no" in out.detail
     out = run(adapter(FakeHttp(ME, AuthError("401"), AuthError("401"))).claim_listing(
         listing("withdraw"), "k"))
     assert out.status is ClaimStatus.REJECTED
@@ -238,3 +240,11 @@ def test_balance_is_read_and_bad_answers_are_errors():
     assert run(a.get_balance()) == Decimal("2.98")
     with pytest.raises(BadResponse):
         run(adapter(FakeHttp(HttpResult(200, {"data": {}}))).get_balance())
+
+
+def test_multi_unit_refusal_falls_back_to_one():
+    http = FakeHttp(ME, BadResponse("HTTP 400", 400), trade_ok())
+    l = replace(listing("withdraw"), quantity=3)
+    out = run(adapter(http).claim_listing(l, "k"))
+    assert out.status is ClaimStatus.CLAIMED
+    assert [p["json"]["items"][0]["quantity"] for p in http.posts()] == [3, 1]

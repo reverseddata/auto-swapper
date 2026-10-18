@@ -57,6 +57,23 @@ class BadResponse(MarketplaceError):
         super().__init__(msg)
 
 
+def _error_reason(text: str) -> str:
+    """The site's own words for a refusal, short and on one line."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        for k in ("message", "error", "detail", "msg"):
+            v = data.get(k)
+            if isinstance(v, list):
+                v = "; ".join(map(str, v))
+            if isinstance(v, (str, int)) and str(v).strip():
+                return " ".join(str(v).split())[:200]
+        return ""
+    return " ".join((text or "").split())[:200]
+
+
 @dataclass
 class HttpResult:
     status: int
@@ -154,7 +171,9 @@ class HttpClient:
                     raise TransientError(f"HTTP {status}")
                 text = await resp.text()
                 if status >= 400:
-                    raise BadResponse(f"HTTP {status}", status)
+                    reason = _error_reason(text)
+                    raise BadResponse(f"HTTP {status}" + (f": {reason}" if reason else ""),
+                                      status)
                 cookies = {k: m.value for k, m in resp.cookies.items()}
         except (aiohttp.ClientConnectorError, aiohttp.ClientConnectorDNSError) as e:
             raise RequestNotSent(f"connect failed: {type(e).__name__}") from e

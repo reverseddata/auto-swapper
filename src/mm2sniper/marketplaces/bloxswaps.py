@@ -372,10 +372,13 @@ class BloxSwapsAdapter(MarketplaceAdapter):
         except MarketplaceError as e:
             # Timeout or rate limit before anything was sent: skip, the next poll retries.
             return ClaimOutcome(ClaimStatus.SKIPPED, detail=f"session unreachable, nothing sent: {e}")
-        body = {"items": [{"itemDetailsId": item_id, "quantity": max(1, listing.quantity) if listing.side == "withdraw" else 1,
-                           "tradeRole": ROLE[listing.side]}]}
+        qty = max(1, listing.quantity) if listing.side == "withdraw" else 1
         try:
-            res = await self._authed("POST", TRADES_URL, json_body=body)
+            res = await self._post_trade(item_id, qty, listing.side)
+            if res is None:
+                # A 400 creates no trade, so asking for a single unit instead is safe.
+                log.info("bloxswaps refused %d units of %s, trying 1", qty, listing.name)
+                res = await self._post_trade(item_id, 1, listing.side, retry=False)
         except RequestNotSent:
             raise  # never left the machine: the engine may retry safely
         except (AuthError, RateLimited) as e:
@@ -398,6 +401,17 @@ class BloxSwapsAdapter(MarketplaceAdapter):
                             detail=f"trade {trade['id']} created",
                             server_link=join_url, bot_name=bot_name, username=self.account,
                             charged=charged)
+
+    async def _post_trade(self, item_id, qty: int, side: str, retry: bool = True):
+        """POST /trades. Returns None for a 400 on a multi-unit claim (retry with 1)."""
+        body = {"items": [{"itemDetailsId": item_id, "quantity": qty,
+                           "tradeRole": ROLE[side]}]}
+        try:
+            return await self._authed("POST", TRADES_URL, json_body=body)
+        except BadResponse as e:
+            if retry and qty > 1 and e.status == 400:
+                return None
+            raise
 
     async def claim_state(self, claim_id: str | None, listing: Listing | None) -> ClaimStatus:
         """With a trade id: read that trade. Without one (reconcile after an unclear
