@@ -164,7 +164,8 @@ def test_item_released_after_start_triggers(tmp_path):
     before = listings("bloxswaps_before.json")
     run(w.process(before))
     h = by_id(listings("bloxswaps_after.json"), "harvester:withdraw")
-    fresh = replace(h, listing_id="mortal:withdraw", slug="mortal", name="Mortal")
+    fresh = replace(h, listing_id="mortal:withdraw", slug="mortal", name="Mortal",
+                    extra={**h.extra, "new_release": True})
     w.s.watch.append(replace(w.s.watch[0], item="Mortal", key="mortal"))
     acted = run(w.process(before + [fresh]))
     assert [l.listing_id for l, _ in acted] == ["mortal:withdraw"]

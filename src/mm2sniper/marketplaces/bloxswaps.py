@@ -42,7 +42,7 @@ from urllib.parse import quote
 
 from ..http import (AuthError, BadResponse, HttpClient, MarketplaceError, RateLimited,
                     RequestNotSent, TransientError)
-from ..models import Capabilities, ClaimOutcome, ClaimStatus, Listing, parse_price
+from ..models import Capabilities, ClaimOutcome, ClaimStatus, Listing, norm_name, parse_price
 from ..notify import register_secret
 from .base import MarketplaceAdapter
 
@@ -80,6 +80,13 @@ def display_name(row: dict) -> str:
     if row.get("chroma") and not name.lower().startswith("chroma"):
         name = f"Chroma {name}"
     return name
+
+
+def row_keys(row) -> set[str]:
+    """Watch keys an /items row answers to (its name and its slug)."""
+    if not isinstance(row, dict):
+        return set()
+    return {norm_name(display_name(row)), norm_name(str(row.get("slug") or ""))}
 
 
 def normalize_rows(payload) -> tuple[list[Listing], int]:
@@ -224,7 +231,11 @@ class BloxSwapsAdapter(MarketplaceAdapter):
         self.secrets = secrets or {}
         self.timeout = timeout
         self._etag: str | None = None
-        self._cache: list[Listing] = []
+        self._rows: list = []            # raw /items rows from the last change
+        self._slugs: set[str] = set()    # every slug in them
+        self._new: set[str] = set()      # slugs that first appeared in the last fetch
+        self._names: list[str] | None = None
+        self.supports_only = True
         self.jar = parse_cookie_header(self.token)
         self._session_path = session_path
         self._refresh_lock = asyncio.Lock()
@@ -334,18 +345,52 @@ class BloxSwapsAdapter(MarketplaceAdapter):
 
     # ------------------------------------------------------------ monitoring
 
-    async def get_listings(self) -> list[Listing]:
+    async def _fetch_rows(self) -> list:
+        """Raw /items rows. Unchanged since the last fetch -> a 304 with no body."""
         res = await self.http.request_json("GET", ITEMS_URL, headers=HEADERS,
                                            timeout=self.timeout, etag=self._etag)
         if res.not_modified:
-            return self._cache
-        listings, bad = await asyncio.to_thread(normalize_rows, res.data)
+            self._new = set()
+            return self._rows
+        data = res.data
+        if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+            raise BadResponse("unexpected /items payload shape")
+        rows = data["data"]
+        slugs = {str(r.get("slug")).strip() for r in rows
+                 if isinstance(r, dict) and r.get("slug")}
+        if not slugs:
+            raise BadResponse("bloxswaps returned no usable items")
+        # A slug missing from the previous list is a new release.
+        self._new = slugs - self._slugs if self._slugs else set()
+        self._rows, self._slugs, self._etag, self._names = rows, slugs, res.etag, None
+        return rows
+
+    async def get_listings(self, only: set[str] | None = None) -> list[Listing]:
+        """Listings for every item, or with `only`, just the items whose name or slug
+        is one of those watch keys (the poll: no work spent on unwatched items)."""
+        rows = await self._fetch_rows()
+        if only is not None:
+            rows = [r for r in rows if row_keys(r) & only]
+        listings, bad = normalize_rows({"data": rows})
         if bad:
             log.debug("bloxswaps: skipped %d malformed rows", bad)
-        if not listings:
-            raise BadResponse("bloxswaps returned no usable items")
-        self._etag, self._cache = res.etag, listings
+        for l in listings:
+            if l.slug in self._new:
+                l.extra["new_release"] = True
         return listings
+
+    async def get_listing_details(self, listing_id: str) -> Listing | None:
+        slug = listing_id.rsplit(":", 1)[0]
+        rows = [r for r in await self._fetch_rows()
+                if isinstance(r, dict) and str(r.get("slug") or "").strip() == slug]
+        return next((l for l in normalize_rows({"data": rows})[0]
+                     if l.listing_id == listing_id), None)
+
+    def item_names(self) -> list[str]:
+        """Every item name from the last fetch (Discord autocomplete)."""
+        if self._names is None:
+            self._names = sorted({display_name(r) for r in self._rows if isinstance(r, dict)})
+        return self._names
 
     # ------------------------------------------------------------ claiming
 

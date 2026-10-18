@@ -255,3 +255,28 @@ def test_cookie_values_never_reach_logs_or_notifications(mock_site, caplog):
     text = caplog.text
     for mark in (ACCESS_MARK, REFRESH_MARK, NEW_ACCESS):
         assert mark not in text, f"{mark} appeared in logs"
+
+
+def test_poll_parses_only_watched_items_and_marks_releases():
+    from conftest import run
+    from mm2sniper.http import HttpResult
+    from mm2sniper.marketplaces.bloxswaps import BloxSwapsAdapter
+
+    def row(slug, name, app=1):
+        return {"slug": slug, "displayName": name, "id": slug, "tradable": True,
+                "appAvailableQuantity": app, "userAvailableQuantity": 0,
+                "currentPrices": {"sellPrice": "10", "buyPrice": "5"}}
+
+    class Http:
+        def __init__(self, *payloads):
+            self.payloads = list(payloads)
+
+        async def request_json(self, *a, **k):
+            return HttpResult(200, {"data": self.payloads.pop(0)}, "e")
+
+    a = BloxSwapsAdapter(Http([row("seer", "Seer")],
+                              [row("seer", "Seer"), row("mortal", "Mortal", 3)]))
+    assert run(a.get_listings(only={"mortal"})) == []
+    ls = run(a.get_listings(only={"mortal"}))
+    assert {l.listing_id for l in ls} == {"mortal:withdraw", "mortal:deposit"}
+    assert all(l.extra.get("new_release") for l in ls)

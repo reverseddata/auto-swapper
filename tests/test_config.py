@@ -34,7 +34,7 @@ def collect(tmp_path, env, toml=None):
 
 
 def test_reports_all_problems_at_once(tmp_path):
-    msg = collect(tmp_path, {"MODE": "yolo", "POLL_INTERVAL_SECONDS": "2",
+    msg = collect(tmp_path, {"MODE": "yolo", "POLL_INTERVAL_SECONDS": "0.5",
                              "MAX_DAILY_SPEND": "lots", "DISCORD_WEBHOOK_URL": "http://evil",
                              "LOG_LEVEL": "LOUD"})
     for needle in ("MODE", "POLL_INTERVAL_SECONDS", "MAX_DAILY_SPEND", "DISCORD_WEBHOOK_URL",

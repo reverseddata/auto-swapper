@@ -22,7 +22,7 @@ from .models import norm_name
 from .notify import register_secret
 
 MODES = ("monitor", "claim")
-MIN_POLL_INTERVAL = 3.0
+MIN_POLL_INTERVAL = 1.0
 WEBHOOK_RE = re.compile(
     r"^https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+$")
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")

@@ -126,7 +126,7 @@ def cmd_dry_run(args):
               f"({bad} malformed rows skipped)")
         for l in listings:
             change = store.observe(l)
-            if not is_trigger(s, l, change, first_sweep=i == 1):
+            if not is_trigger(s, l, change):
                 continue
             w = s.watch_for(l.name, l.slug, l.side)
             if w is None:

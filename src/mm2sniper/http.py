@@ -182,7 +182,9 @@ class HttpClient:
         except aiohttp.ClientError as e:
             raise TransientError(f"transport error: {type(e).__name__}") from e
         try:
-            data = json.loads(text)
+            # The full item list is ~600 KB: parse it off the event loop.
+            data = (await asyncio.to_thread(json.loads, text) if len(text) > 100_000
+                    else json.loads(text))
         except ValueError as e:
             raise BadResponse(f"non-JSON response (HTTP {status})", status) from e
         return HttpResult(status, data, resp_etag, cookies=cookies)

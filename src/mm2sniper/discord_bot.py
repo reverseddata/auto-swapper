@@ -146,7 +146,8 @@ class Commands:
     def item_names(self, current: str, limit: int = 25) -> list[str]:
         """Autocomplete: names from the last poll, filtered by what was typed."""
         want = norm_name(current or "")
-        names = sorted({l.name for l in getattr(self.adapter, "_cache", [])})
+        names = (self.adapter.item_names() if hasattr(self.adapter, "item_names")
+                 else sorted({l.name for l in getattr(self.adapter, "_cache", [])}))
         hits = [n for n in names if want in norm_name(n)] if want else names
         return hits[:limit]
 

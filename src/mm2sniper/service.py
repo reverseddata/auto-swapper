@@ -38,18 +38,17 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def is_trigger(settings: Settings, listing: Listing, change: Change,
-               first_sweep: bool = True) -> bool:
+def is_trigger(settings: Settings, listing: Listing, change: Change) -> bool:
     """Only a TRANSITION is an opportunity: sold out -> restocked, or full ->
     slot opened. Deposit slots are open most of the time, so "is open" alone
     would claim on every start. A withdraw price drop while in stock also
-    counts (it may newly fit max_price). A first sighting on the first sweep
-    counts only with act_on_first_sight; after that it is an item that just
-    appeared on the site (a new release), which always counts."""
+    counts (it may newly fit max_price). A first sighting counts only with
+    act_on_first_sight, or when the item just appeared on the site (a new
+    release, marked by the adapter)."""
     if change is Change.RESTOCKED:
         return True
     if change is Change.NEW:
-        return settings.act_on_first_sight or not first_sweep
+        return settings.act_on_first_sight or bool(listing.extra.get("new_release"))
     if change in (Change.PRICE_CHANGED, Change.MORE_STOCK):
         return listing.side == "withdraw"
     return False
@@ -66,7 +65,6 @@ class Watcher:
         self.watchlist = WatchList(settings, store)
         self._stop = asyncio.Event()
         self._down_alerted = False
-        self._first_sweep = True
         self.started_at = _now()
 
     def stop(self):
@@ -89,9 +87,8 @@ class Watcher:
         entries = self.watchlist.entries()   # once per sweep: Discord edits apply next poll
         # Off the event loop, so Discord commands stay responsive during a sweep.
         changes = await asyncio.to_thread(self.store.observe_many, listings)
-        first, self._first_sweep = self._first_sweep, False
         for l, change in zip(listings, changes):
-            if not is_trigger(self.s, l, change, first):
+            if not is_trigger(self.s, l, change):
                 continue
             watch = WatchList.find(entries, l.name, l.slug, l.side)
             if watch is None:
@@ -156,7 +153,12 @@ class Watcher:
             # ---- poll
             st.polls += 1
             try:
-                listings = await self.adapter.get_listings()
+                if getattr(self.adapter, "supports_only", False):
+                    # Only watched items are parsed and recorded.
+                    keys = {w.key for w in self.watchlist.entries()}
+                    listings = await self.adapter.get_listings(only=keys)
+                else:
+                    listings = await self.adapter.get_listings()
             except RateLimited as e:
                 st.consecutive_failures += 1
                 st.last_error = str(e)
@@ -279,7 +281,8 @@ async def run_service(settings: Settings):
 
 async def _run_service(settings: Settings):
     store = Store(settings.db_path)
-    http = HttpClient(min_host_interval=1.0, default_timeout=settings.request_timeout_seconds)
+    # Short spacing: a claim makes 2-3 requests back to back and must not queue behind it.
+    http = HttpClient(min_host_interval=0.2, default_timeout=settings.request_timeout_seconds)
     adapter = build_adapter(settings, http)
     notifier = DiscordNotifier(settings.discord_webhook_url, username=settings.discord_username,
                                cooldown_seconds=settings.alert_cooldown_seconds,
