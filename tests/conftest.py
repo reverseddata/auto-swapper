@@ -73,6 +73,7 @@ class FakeAdapter(MarketplaceAdapter):
         super().__init__()
         self.ls = list(ls or [])
         self.claim_calls = []
+        self.claimed = []
         self.claim_outcomes = list(claim_outcomes or [])
         self.claim_states = list(claim_states or [])
         self.claim_delay = claim_delay
@@ -86,6 +87,7 @@ class FakeAdapter(MarketplaceAdapter):
 
     async def claim_listing(self, listing, idem_key):
         self.claim_calls.append((listing.listing_id, idem_key))
+        self.claimed.append(listing)
         if self.claim_delay:
             await asyncio.sleep(self.claim_delay)
         if self.claim_exc:

@@ -22,7 +22,7 @@ from .models import norm_name
 from .notify import register_secret
 
 MODES = ("monitor", "claim")
-MIN_POLL_INTERVAL = 10.0
+MIN_POLL_INTERVAL = 3.0
 WEBHOOK_RE = re.compile(
     r"^https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+$")
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
@@ -93,6 +93,7 @@ class Settings:
     watch: list[WatchEntry] = field(default_factory=list)
     max_claim_price: Decimal | None = None      # global cap, None = off
     max_daily_spend: Decimal | None = None      # None = off
+    max_claim_quantity: int = 0                 # units per withdraw claim, 0 = all in stock
     claim_hold_timeout_minutes: float = 30.0    # 0 = wait for `mm2sniper resume`
     claim_status_interval_seconds: float = 30.0
     act_on_first_sight: bool = False            # claim items already available at startup
@@ -124,6 +125,7 @@ class Settings:
                       for w in self.watch],
             "max_claim_price": str(self.max_claim_price) if self.max_claim_price else None,
             "max_daily_spend": str(self.max_daily_spend) if self.max_daily_spend else None,
+            "max_claim_quantity": self.max_claim_quantity,
             "claim_hold_timeout_minutes": self.claim_hold_timeout_minutes,
             "bloxswaps_secrets": sorted(self.bloxswaps_secrets) or "none",
         }
@@ -253,6 +255,13 @@ def load_settings(config_file: str | os.PathLike | None = None,
                                     "request_timeout_seconds", 20.0, minimum=1.0)
     s.max_claim_price = dec(pick("MAX_CLAIM_PRICE", "max_claim_price"), "MAX_CLAIM_PRICE")
     s.max_daily_spend = dec(pick("MAX_DAILY_SPEND", "max_daily_spend"), "MAX_DAILY_SPEND")
+    raw_qty = pick("MAX_CLAIM_QUANTITY", "max_claim_quantity")
+    try:
+        s.max_claim_quantity = int(raw_qty) if raw_qty not in (None, "") else 0
+        if s.max_claim_quantity < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        problems.append("MAX_CLAIM_QUANTITY must be a whole number, 0 or more")
     s.claim_hold_timeout_minutes = flt(
         pick("CLAIM_HOLD_TIMEOUT_MINUTES", "claim_hold_timeout_minutes"),
         "CLAIM_HOLD_TIMEOUT_MINUTES", 30.0)

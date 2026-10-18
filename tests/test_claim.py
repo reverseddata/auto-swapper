@@ -185,3 +185,24 @@ def test_unsupported_adapter_never_claims(tmp_path):
     s, store, n, eng = setup(tmp_path, a)
     out = run(eng.attempt(l, s.watch[0]))
     assert out.status is ClaimStatus.SKIPPED and not a.claim_calls
+
+
+def _claimed_qty(a):
+    return a.claimed[0].quantity
+
+
+def test_withdraw_takes_all_stock_within_balance(tmp_path):
+    l = replace(harvester(), quantity=3)   # price 312.9
+    a = FakeAdapter([l])
+    a.get_balance = lambda: asyncio.sleep(0, Decimal("700"))   # pays for 2
+    s, store, n, eng = setup(tmp_path, a)
+    assert run(eng.attempt(l, s.watch[0])).status is ClaimStatus.CLAIMED
+    assert _claimed_qty(a) == 2
+
+
+def test_withdraw_quantity_capped_by_setting(tmp_path):
+    l = replace(harvester(), quantity=3)
+    a = FakeAdapter([l])
+    s, store, n, eng = setup(tmp_path, a, MAX_CLAIM_QUANTITY="1")
+    run(eng.attempt(l, s.watch[0]))
+    assert _claimed_qty(a) == 1

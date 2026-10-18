@@ -65,8 +65,8 @@ def test_withdraw_claim_takes_bot_stock_as_app_leg():
     out = run(adapter(http).claim_listing(l, "k"))
     post = http.posts()[0]
     assert post["url"] == TRADES_URL
-    assert post["json"] == {"items": [{"itemDetailsId": l.extra["id"], "quantity": 1,
-                                       "tradeRole": "APP"}]}
+    assert post["json"] == {"items": [{"itemDetailsId": l.extra["id"],
+                                       "quantity": l.quantity, "tradeRole": "APP"}]}
     assert post["headers"]["Cookie"] == TOKEN
     assert out.status is ClaimStatus.CLAIMED and out.claim_id == "trade-42"
     assert out.server_link.startswith("https://www.roblox.com/share")

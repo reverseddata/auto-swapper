@@ -87,8 +87,15 @@ class ClaimEngine:
 
             # One key per detection: re-submitting the same sighting can never claim twice.
             key = f"{listing.listing_id}:{listing.price}:{listing.detected_at.timestamp():.6f}"
+            # Withdraw takes every unit in stock, up to MAX_CLAIM_QUANTITY and the
+            # daily cap; a deposit gives one item.
+            want = 1
+            if listing.side == "withdraw":
+                want = max(1, listing.quantity)
+                if self.s.max_claim_quantity:
+                    want = min(want, self.s.max_claim_quantity)
             res = self.store.reserve_claim(idem_key=key, listing=listing,
-                                           daily_limit=self.s.max_daily_spend)
+                                           daily_limit=self.s.max_daily_spend, quantity=want)
             if not res.ok:
                 if res.reason.startswith("daily cap") and self._cap_alert_day != utc_day():
                     self._cap_alert_day = utc_day()
@@ -103,6 +110,7 @@ class ClaimEngine:
                 self.store.update_claim(key, ClaimStatus.SKIPPED, detail=fresh)
                 log.info("claim skipped for %s: %s", listing.name, fresh)
                 return ClaimOutcome(ClaimStatus.SKIPPED, detail=fresh)
+            fresh = replace(fresh, quantity=await self._quantity(fresh, res.quantity))
 
             outcome = await self._send(fresh, key)
             if outcome.status is ClaimStatus.UNKNOWN:
@@ -113,6 +121,22 @@ class ClaimEngine:
             if outcome.status is ClaimStatus.CLAIMED:
                 self._check_charged(fresh, watch, outcome)
             return outcome
+
+    async def _quantity(self, fresh: Listing, granted: int) -> int:
+        """Units to claim: one for a deposit; for a withdraw, what is still in
+        stock, within the reservation, and what the site balance can pay for."""
+        if fresh.side != "withdraw":
+            return 1
+        qty = max(1, min(granted, fresh.quantity))
+        if qty > 1 and fresh.price > 0 and hasattr(self.adapter, "get_balance"):
+            try:
+                balance = await asyncio.wait_for(self.adapter.get_balance(),
+                                                 self.s.request_timeout_seconds + 5)
+                qty = max(1, min(qty, int(balance // fresh.price)))
+            except Exception as e:  # noqa: BLE001 - fall back to one unit
+                log.warning("balance check failed, claiming 1: %s", e)
+                qty = 1
+        return qty
 
     async def _complete_handoff(self, outcome: ClaimOutcome) -> ClaimOutcome:
         """Make sure the claim alert carries the join link. The create answer has no
@@ -167,11 +191,13 @@ class ClaimEngine:
             return
         problems = []
         if listing.side == "withdraw":
-            if charged > listing.price:
-                problems.append(f"costs {charged}, listed at {listing.price}")
-            if watch.max_price is not None and charged > watch.max_price:
+            qty = max(1, listing.quantity)
+            each = charged / qty
+            if charged > listing.price * qty:
+                problems.append(f"costs {charged} for {qty}, listed at {listing.price} each")
+            if watch.max_price is not None and each > watch.max_price:
                 problems.append(f"above max_price {watch.max_price}")
-            if self.s.max_claim_price is not None and charged > self.s.max_claim_price:
+            if self.s.max_claim_price is not None and each > self.s.max_claim_price:
                 problems.append(f"above MAX_CLAIM_PRICE {self.s.max_claim_price}")
         else:
             if charged < listing.price:

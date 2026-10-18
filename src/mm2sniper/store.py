@@ -98,6 +98,7 @@ class Reservation:
     ok: bool
     reason: str = ""
     claim_row_id: int | None = None
+    quantity: int = 1          # units granted (the daily cap may grant fewer)
 
 
 @dataclass(frozen=True)
@@ -205,9 +206,13 @@ class Store:
         return sum((Decimal(r["price"]) for r in rows), Decimal(0))
 
     def reserve_claim(self, *, idem_key: str, listing: Listing,
-                      daily_limit: Decimal | None, day: str | None = None) -> Reservation:
-        """Atomically check the daily cap and insert a PENDING row.
-        Returns ok=False with a reason on duplicate, limit, or a broken ledger."""
+                      daily_limit: Decimal | None, day: str | None = None,
+                      quantity: int = 1) -> Reservation:
+        """Atomically check the daily cap and insert a PENDING row for up to
+        `quantity` units (fewer if only fewer fit the cap); the row's price is
+        the total. Returns ok=False with a reason on duplicate, limit, or a
+        broken ledger."""
+        quantity = max(1, quantity)
         day = day or utc_day()
         now = _now()
         with self._lock:
@@ -235,7 +240,10 @@ class Store:
                                       f"side='withdraw' AND status IN "
                                       f"({ph})", (day, *COMMITTED)).fetchall()
                     today = sum((Decimal(r["price"]) for r in rows), Decimal(0))
-                    if today + listing.price > daily_limit:
+                    if listing.price > 0:
+                        fits = int((daily_limit - today) // listing.price)
+                        quantity = max(1, min(quantity, fits))
+                    if today + listing.price * quantity > daily_limit:
                         self._exec("ROLLBACK")
                         return Reservation(False, f"daily cap: {today} + {listing.price} > "
                                                   f"{daily_limit}")
@@ -244,10 +252,10 @@ class Store:
                     " unit, day, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (idem_key, listing.marketplace, listing.listing_id, listing.side,
                      listing.name,
-                     str(listing.price), listing.unit, day, ClaimStatus.PENDING.value,
-                     now, now))
+                     str(listing.price * quantity), listing.unit, day,
+                     ClaimStatus.PENDING.value, now, now))
                 self._exec("COMMIT")
-                return Reservation(True, claim_row_id=cur.lastrowid)
+                return Reservation(True, claim_row_id=cur.lastrowid, quantity=quantity)
             except BaseException as e:
                 if self._conn.in_transaction:
                     self._conn.execute("ROLLBACK")
