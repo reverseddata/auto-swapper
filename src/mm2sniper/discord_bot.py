@@ -91,13 +91,19 @@ class Commands:
         except MarketplaceError as e:
             return f"Could not reach BloxSwaps to check the name ({e}). Nothing changed."
         hits = [l for l in listings if key in (norm_name(l.name), norm_name(l.slug))]
+        note = ""
         if not hits:
+            # Not listed yet (a new release, say): watch the name as typed, so it is
+            # claimed the moment BloxSwaps adds it.
             words = key.split()
             close = sorted({l.name for l in listings
                             if all(w in norm_name(l.name) for w in words)})[:8]
-            hint = (" Did you mean: " + ", ".join(_md(n) for n in close) + "?") if close else ""
-            return f"No BloxSwaps item called **{_md(item)}**.{hint} Nothing changed."
-        name = hits[0].name
+            hint = (" Similar names listed now: " + ", ".join(_md(n) for n in close) + "."
+                    ) if close else ""
+            note = (f"\n⚠️ BloxSwaps doesn't list **{_md(item)}** yet. It is watched anyway "
+                    f"and claimed when it appears, if the name matches exactly "
+                    f"(chromas are \"Chroma <name>\").{hint}")
+        name = hits[0].name if hits else item
         entry = WatchEntry(name, side, mx, mn, key=norm_name(name), min_qty=min_qty or 1)
         if self.s.mode == "claim":
             problems = limit_problems(entry, self.s.max_claim_price)
@@ -110,7 +116,7 @@ class Commands:
                for l in hits if side in (l.side, "both")]
         return (("Updated " if existed else "Watching ") + describe(entry)
                 + (f"\nRight now: {'; '.join(now)}" if now else "")
-                + "\nApplies on the next poll.")
+                + note + "\nApplies on the next poll.")
 
     async def remove(self, item: str) -> str:
         key = norm_name(item or "")

@@ -157,3 +157,14 @@ def test_polling_paused_while_on_hold(tmp_path):
     run(go())
     assert a.status.polls == polls_before          # no polling during the hold
     assert a.status.paused_reason.startswith("waiting for trade")
+
+
+def test_item_released_after_start_triggers(tmp_path):
+    w, store, n, a = make(tmp_path, "monitor")
+    before = listings("bloxswaps_before.json")
+    run(w.process(before))
+    h = by_id(listings("bloxswaps_after.json"), "harvester:withdraw")
+    fresh = replace(h, listing_id="mortal:withdraw", slug="mortal", name="Mortal")
+    w.s.watch.append(replace(w.s.watch[0], item="Mortal", key="mortal"))
+    acted = run(w.process(before + [fresh]))
+    assert [l.listing_id for l, _ in acted] == ["mortal:withdraw"]

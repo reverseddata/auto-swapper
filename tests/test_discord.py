@@ -93,11 +93,12 @@ def test_add_validates_against_bloxswaps_and_persists(tmp_path):
     assert w.max_price == D(350)
 
 
-def test_add_unknown_item_changes_nothing(tmp_path):
+def test_add_unlisted_item_is_watched_for_release(tmp_path):
     s, store, a, wl, c = setup(tmp_path)
-    before = store.watch_entries()
-    msg = run(c.add("Definitely Not An Item", "withdraw", 5))
-    assert "No BloxSwaps item" in msg and store.watch_entries() == before
+    msg = run(c.add("Chroma Mortal", "withdraw", 5, min_qty=2))
+    assert "doesn't list" in msg
+    w = next(w for w in store.watch_entries() if w.key == "chroma mortal")
+    assert w.item == "Chroma Mortal" and w.max_price == D(5) and w.min_qty == 2
 
 
 def test_add_refuses_unlimited_entries_in_claim_mode(tmp_path):

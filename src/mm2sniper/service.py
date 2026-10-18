@@ -38,16 +38,18 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def is_trigger(settings: Settings, listing: Listing, change: Change) -> bool:
+def is_trigger(settings: Settings, listing: Listing, change: Change,
+               first_sweep: bool = True) -> bool:
     """Only a TRANSITION is an opportunity: sold out -> restocked, or full ->
     slot opened. Deposit slots are open most of the time, so "is open" alone
     would claim on every start. A withdraw price drop while in stock also
-    counts (it may newly fit max_price). First sightings count only with
-    act_on_first_sight."""
+    counts (it may newly fit max_price). A first sighting on the first sweep
+    counts only with act_on_first_sight; after that it is an item that just
+    appeared on the site (a new release), which always counts."""
     if change is Change.RESTOCKED:
         return True
     if change is Change.NEW:
-        return settings.act_on_first_sight
+        return settings.act_on_first_sight or not first_sweep
     if change in (Change.PRICE_CHANGED, Change.MORE_STOCK):
         return listing.side == "withdraw"
     return False
@@ -64,6 +66,7 @@ class Watcher:
         self.watchlist = WatchList(settings, store)
         self._stop = asyncio.Event()
         self._down_alerted = False
+        self._first_sweep = True
         self.started_at = _now()
 
     def stop(self):
@@ -86,8 +89,9 @@ class Watcher:
         entries = self.watchlist.entries()   # once per sweep: Discord edits apply next poll
         # Off the event loop, so Discord commands stay responsive during a sweep.
         changes = await asyncio.to_thread(self.store.observe_many, listings)
+        first, self._first_sweep = self._first_sweep, False
         for l, change in zip(listings, changes):
-            if not is_trigger(self.s, l, change):
+            if not is_trigger(self.s, l, change, first):
                 continue
             watch = WatchList.find(entries, l.name, l.slug, l.side)
             if watch is None:
