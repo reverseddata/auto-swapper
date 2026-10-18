@@ -1,4 +1,7 @@
 FROM python:3.12-slim
+LABEL org.opencontainers.image.source="https://github.com/reverseddata/auto-swapper" \
+      org.opencontainers.image.description="BloxSwaps MM2 restock and deposit-slot sniper" \
+      org.opencontainers.image.licenses="MIT"
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 DATA_DIR=/app/data LOG_DIR=/app/logs
 COPY pyproject.toml README.md ./

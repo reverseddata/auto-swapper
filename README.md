@@ -123,8 +123,23 @@ only when the bot reports "token was rejected". Logging out of BloxSwaps ends it
 
 ## Deploying on Railway
 
-1. Push this repo to GitHub, then in Railway: **New Project → Deploy from GitHub repo**.
-   The `Dockerfile` is used automatically. No port or domain is needed; it is a worker.
+### One click (no GitHub account needed)
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/TEMPLATE_CODE)
+
+1. Click the button and sign in to Railway (email works).
+2. Fill in the variables it asks for (see "Getting your token" and the Discord setup above).
+3. Deploy. Then pick items with `/watch add` in Discord.
+
+It runs the published image `ghcr.io/reverseddata/auto-swapper:latest`, with a volume
+on `/app/data` already attached. To update, redeploy the service in Railway.
+
+### By hand
+
+1. In Railway: **New Project → Empty Project → New → Docker Image**, and enter
+   `ghcr.io/reverseddata/auto-swapper:latest`. (Or **Deploy from GitHub repo** on your
+   own fork; the `Dockerfile` is used automatically.) No port or domain is needed; it
+   is a worker.
 2. **Variables**: add `MODE`, `DISCORD_WEBHOOK_URL`, `BLOXSWAPS_TOKEN` (claim mode),
    `DISCORD_MENTION_USER_ID`, and either `DISCORD_BOT_TOKEN` (manage items with
    `/watch`, recommended) or `WATCH`. Optional: `MAX_CLAIM_PRICE`, `MAX_DAILY_SPEND`,
