@@ -52,6 +52,8 @@ def describe(w: WatchEntry) -> str:
     if w.side in ("deposit", "both"):
         parts.append(f"deposit ≥ {w.min_price}" if w.min_price is not None
                      else "deposit at any payout")
+    if w.side in ("withdraw", "both") and w.min_qty > 1:
+        parts.append(f"at least {w.min_qty} at a time")
     return f"**{_md(w.item)}**: " + ", ".join(parts)
 
 
@@ -67,7 +69,8 @@ class Commands:
 
     # ---------------------------------------------------------------- watch
 
-    async def add(self, item: str, side: str = "withdraw", max_price=None, min_price=None) -> str:
+    async def add(self, item: str, side: str = "withdraw", max_price=None, min_price=None,
+                  min_qty: int | None = None) -> str:
         side = (side or "withdraw").strip().lower()
         if side not in SIDES:
             return f"Side must be one of: {', '.join(SIDES)}."
@@ -79,6 +82,8 @@ class Commands:
             mx, mn = _price(max_price, "max"), _price(min_price, "min")
         except ValueError as e:
             return f"Not added: {e}."
+        if min_qty is not None and min_qty < 1:
+            return "Not added: min_qty must be 1 or more."
         if mx is not None and mx == 0:
             return "Not added: max 0 would never match. Leave it empty for no item limit."
         try:
@@ -93,7 +98,7 @@ class Commands:
             hint = (" Did you mean: " + ", ".join(_md(n) for n in close) + "?") if close else ""
             return f"No BloxSwaps item called **{_md(item)}**.{hint} Nothing changed."
         name = hits[0].name
-        entry = WatchEntry(name, side, mx, mn, key=norm_name(name))
+        entry = WatchEntry(name, side, mx, mn, key=norm_name(name), min_qty=min_qty or 1)
         if self.s.mode == "claim":
             problems = limit_problems(entry, self.s.max_claim_price)
             if problems:
@@ -206,14 +211,16 @@ def build_tree(client, commands: Commands, guild=None):
     @app_commands.describe(item="BloxSwaps item name",
                            side="withdraw: bots restock it; deposit: a slot opens",
                            max_price="most you pay on a withdraw",
-                           min_price="least you accept on a deposit")
+                           min_price="least you accept on a deposit",
+                           min_qty="withdraw: only claim when you can take at least this many")
     async def add(interaction: discord.Interaction, item: str,
                   side: Literal["withdraw", "deposit", "both"] = "withdraw",
-                  max_price: float | None = None, min_price: float | None = None):
+                  max_price: float | None = None, min_price: float | None = None,
+                  min_qty: int | None = None):
         if not await guard(interaction):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
-        await reply(interaction, await commands.add(item, side, max_price, min_price))
+        await reply(interaction, await commands.add(item, side, max_price, min_price, min_qty))
 
     @add.autocomplete("item")
     async def add_item(interaction: discord.Interaction, current: str):

@@ -67,6 +67,8 @@ class ClaimEngine:
     def eligible(self, listing: Listing, watch: WatchEntry) -> tuple[bool, str]:
         if not listing.available:
             return False, "not available"
+        if listing.side == "withdraw" and listing.quantity < watch.min_qty:
+            return False, f"only {listing.quantity} in stock, minimum is {watch.min_qty}"
         if not watch.price_ok(listing.side, listing.price):
             return False, f"price {listing.price} outside watch limit"
         if (listing.side == "withdraw" and self.s.max_claim_price is not None
@@ -110,7 +112,14 @@ class ClaimEngine:
                 self.store.update_claim(key, ClaimStatus.SKIPPED, detail=fresh)
                 log.info("claim skipped for %s: %s", listing.name, fresh)
                 return ClaimOutcome(ClaimStatus.SKIPPED, detail=fresh)
-            fresh = replace(fresh, quantity=await self._quantity(fresh, res.quantity))
+            qty = await self._quantity(fresh, res.quantity)
+            if fresh.side == "withdraw" and qty < watch.min_qty:
+                why = f"can only take {qty} (balance or caps), minimum is {watch.min_qty}"
+                self.store.update_claim(key, ClaimStatus.SKIPPED, detail=why)
+                log.info("claim skipped for %s: %s", listing.name, why)
+                return ClaimOutcome(ClaimStatus.SKIPPED, detail=why)
+            fresh = replace(fresh, quantity=qty,
+                            extra={**fresh.extra, "min_quantity": watch.min_qty})
 
             outcome = await self._send(fresh, key)
             if outcome.status is ClaimStatus.UNKNOWN:

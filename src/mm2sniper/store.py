@@ -85,12 +85,14 @@ class Change(str, enum.Enum):
     NEW = "new"                  # first sighting, in stock
     PRICE_CHANGED = "price_changed"
     RESTOCKED = "restocked"      # was out of stock, now in stock
+    MORE_STOCK = "more_stock"    # in stock before, more units now
     UNCHANGED = "unchanged"
     UNAVAILABLE = "unavailable"  # out of stock
 
     @property
     def needs_evaluation(self) -> bool:
-        return self in (Change.NEW, Change.PRICE_CHANGED, Change.RESTOCKED)
+        return self in (Change.NEW, Change.PRICE_CHANGED, Change.RESTOCKED,
+                        Change.MORE_STOCK)
 
 
 @dataclass(frozen=True)
@@ -132,8 +134,17 @@ class Store:
         # FULL: a PENDING row must survive power loss, or a restart could claim again.
         self._conn.execute("PRAGMA synchronous=FULL")
         self._conn.executescript(SCHEMA)
+        self._migrate()
         # Fallback dedupe if the database becomes unwritable mid-run.
         self._mem_seen: dict[tuple[str, str], tuple[str, bool]] = {}
+
+    def _migrate(self):
+        """Columns added after the first release, for databases made before them."""
+        for table, col, decl in (("seen", "quantity", "INTEGER"),
+                                 ("watchlist", "min_qty", "INTEGER")):
+            cols = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            if col not in cols:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
 
     def close(self):
         with self._lock:
@@ -162,17 +173,21 @@ class Store:
                 try:
                     for l in listings:
                         key = (l.marketplace, l.listing_id)
-                        row = self._exec("SELECT price, available FROM seen WHERE "
-                                         "marketplace=? AND listing_id=?", key).fetchone()
+                        row = self._exec("SELECT price, available, quantity FROM seen "
+                                         "WHERE marketplace=? AND listing_id=?",
+                                         key).fetchone()
                         self._exec(
                             "INSERT INTO seen(marketplace, listing_id, name, price, available,"
-                            " first_seen, last_seen) VALUES (?,?,?,?,?,?,?) "
+                            " quantity, first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?) "
                             "ON CONFLICT(marketplace, listing_id) DO UPDATE SET "
                             "name=excluded.name, price=excluded.price, "
-                            "available=excluded.available, last_seen=excluded.last_seen",
-                            (*key, l.name, str(l.price), int(bool(l.available)), now, now))
+                            "available=excluded.available, quantity=excluded.quantity, "
+                            "last_seen=excluded.last_seen",
+                            (*key, l.name, str(l.price), int(bool(l.available)), l.quantity,
+                             now, now))
                         prevs.append(None if row is None
-                                     else (row["price"], bool(row["available"])))
+                                     else (row["price"], bool(row["available"]),
+                                           row["quantity"]))
                     self._exec("COMMIT")
                 except BaseException:
                     if self._conn.in_transaction:
@@ -185,7 +200,8 @@ class Store:
 
     def _change(self, listing: Listing, prev) -> Change:
         price, avail = str(listing.price), bool(listing.available)
-        self._mem_seen[(listing.marketplace, listing.listing_id)] = (price, avail)
+        self._mem_seen[(listing.marketplace, listing.listing_id)] = (price, avail,
+                                                                     listing.quantity)
         if not avail:
             return Change.UNAVAILABLE
         if prev is None:
@@ -194,6 +210,8 @@ class Store:
             return Change.RESTOCKED
         if Decimal(prev[0]) != listing.price:
             return Change.PRICE_CHANGED
+        if prev[2] is not None and listing.quantity > prev[2]:
+            return Change.MORE_STOCK
         return Change.UNCHANGED
 
     def mark_unavailable(self, marketplace: str, listing_id: str):
@@ -202,7 +220,7 @@ class Store:
         was skipped for a transient reason)."""
         key = (marketplace, listing_id)
         if key in self._mem_seen:
-            self._mem_seen[key] = (self._mem_seen[key][0], False)
+            self._mem_seen[key] = (self._mem_seen[key][0], False, 0)
         try:
             with self._lock:
                 self._exec("UPDATE seen SET available=0 WHERE marketplace=? AND listing_id=?",
@@ -314,19 +332,21 @@ class Store:
             rows = self._exec("SELECT * FROM watchlist ORDER BY item").fetchall()
         return [WatchEntry(r["item"], r["side"],
                            Decimal(r["max_price"]) if r["max_price"] else None,
-                           Decimal(r["min_price"]) if r["min_price"] else None, r["key"])
+                           Decimal(r["min_price"]) if r["min_price"] else None, r["key"],
+                           r["min_qty"] or 1)
                 for r in rows]
 
     def put_watch(self, w) -> None:
         with self._lock:
             self._exec(
-                "INSERT INTO watchlist(key, item, side, max_price, min_price, updated_at) "
-                "VALUES (?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET item=excluded.item, "
-                "side=excluded.side, max_price=excluded.max_price, "
-                "min_price=excluded.min_price, updated_at=excluded.updated_at",
+                "INSERT INTO watchlist(key, item, side, max_price, min_price, min_qty, "
+                "updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET "
+                "item=excluded.item, side=excluded.side, max_price=excluded.max_price, "
+                "min_price=excluded.min_price, min_qty=excluded.min_qty, "
+                "updated_at=excluded.updated_at",
                 (w.key, w.item, w.side,
                  str(w.max_price) if w.max_price is not None else None,
-                 str(w.min_price) if w.min_price is not None else None, _now()))
+                 str(w.min_price) if w.min_price is not None else None, w.min_qty, _now()))
 
     def remove_watch(self, key: str) -> bool:
         with self._lock:

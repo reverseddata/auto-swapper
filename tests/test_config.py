@@ -87,3 +87,10 @@ def test_secrets_never_in_redacted_view(tmp_path):
     shown = str(s.redacted())
     assert "test-token-not-real" not in shown and "abc-DEF_123" not in shown
     assert "BLOXSWAPS_TOKEN" in shown  # only the name
+
+
+def test_watch_env_min_quantity(tmp_path):
+    from mm2sniper.config import WATCH_ENTRY_RE
+    m = WATCH_ENTRY_RE.match("Harvester<=330 x3")
+    assert m and m["item"] == "Harvester" and m["qty"] == "3" and "330" in m["limits"]
+    assert WATCH_ENTRY_RE.match("Harvester")["qty"] is None

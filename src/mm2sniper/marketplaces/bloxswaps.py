@@ -375,10 +375,13 @@ class BloxSwapsAdapter(MarketplaceAdapter):
         qty = max(1, listing.quantity) if listing.side == "withdraw" else 1
         try:
             res = await self._post_trade(item_id, qty, listing.side)
-            if res is None:
-                # A 400 creates no trade, so asking for a single unit instead is safe.
-                log.info("bloxswaps refused %d units of %s, trying 1", qty, listing.name)
-                res = await self._post_trade(item_id, 1, listing.side, retry=False)
+            floor = max(1, int(listing.extra.get("min_quantity") or 1))
+            if res is None and floor < qty:
+                # A 400 creates no trade, so asking for the item's minimum instead is safe.
+                log.info("bloxswaps refused %d units of %s, trying %d", qty, listing.name, floor)
+                res = await self._post_trade(item_id, floor, listing.side, retry=False)
+            elif res is None:
+                res = await self._post_trade(item_id, qty, listing.side, retry=False)
         except RequestNotSent:
             raise  # never left the machine: the engine may retry safely
         except (AuthError, RateLimited) as e:

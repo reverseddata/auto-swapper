@@ -206,3 +206,30 @@ def test_withdraw_quantity_capped_by_setting(tmp_path):
     s, store, n, eng = setup(tmp_path, a, MAX_CLAIM_QUANTITY="1")
     run(eng.attempt(l, s.watch[0]))
     assert _claimed_qty(a) == 1
+
+
+def test_min_quantity_waits_for_enough_stock(tmp_path):
+    l = replace(harvester(), quantity=2)
+    a = FakeAdapter([l])
+    s, store, n, eng = setup(tmp_path, a)
+    w = replace(s.watch[0], min_qty=3)
+    out = run(eng.attempt(l, w))
+    assert out.status is ClaimStatus.SKIPPED and "minimum is 3" in out.detail
+    assert a.claimed == []
+
+
+def test_min_quantity_skips_when_balance_too_low(tmp_path):
+    l = replace(harvester(), quantity=3)   # price 312.9
+    a = FakeAdapter([l])
+    a.get_balance = lambda: asyncio.sleep(0, Decimal("700"))   # pays for 2
+    s, store, n, eng = setup(tmp_path, a)
+    out = run(eng.attempt(l, replace(s.watch[0], min_qty=3)))
+    assert out.status is ClaimStatus.SKIPPED and a.claimed == []
+
+
+def test_min_quantity_claims_when_met(tmp_path):
+    l = replace(harvester(), quantity=3)
+    a = FakeAdapter([l])
+    s, store, n, eng = setup(tmp_path, a)
+    assert run(eng.attempt(l, replace(s.watch[0], min_qty=3))).status is ClaimStatus.CLAIMED
+    assert a.claimed[0].quantity == 3

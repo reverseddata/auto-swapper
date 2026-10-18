@@ -48,7 +48,7 @@ def is_trigger(settings: Settings, listing: Listing, change: Change) -> bool:
         return True
     if change is Change.NEW:
         return settings.act_on_first_sight
-    if change is Change.PRICE_CHANGED:
+    if change in (Change.PRICE_CHANGED, Change.MORE_STOCK):
         return listing.side == "withdraw"
     return False
 
