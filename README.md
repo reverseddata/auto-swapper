@@ -125,7 +125,7 @@ only when the bot reports "token was rejected". Logging out of BloxSwaps ends it
 
 ### One click (no GitHub account needed)
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/TEMPLATE_CODE)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/W1VcLW?referralCode=YMdSJg&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 1. Click the button and sign in to Railway (email works).
 2. Fill in the variables it asks for (see "Getting your token" and the Discord setup above).
