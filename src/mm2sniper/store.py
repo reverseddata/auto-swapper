@@ -66,6 +66,14 @@ CREATE TABLE IF NOT EXISTS kv (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS watchlist (
+    key        TEXT PRIMARY KEY,
+    item       TEXT NOT NULL,
+    side       TEXT NOT NULL,
+    max_price  TEXT,
+    min_price  TEXT,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -270,6 +278,48 @@ class Store:
         with self._lock:
             return self._exec("SELECT * FROM claims ORDER BY id DESC LIMIT ?",
                               (limit,)).fetchall()
+
+    # ------------------------------------------------------------ watchlist
+
+    def watch_entries(self) -> list:
+        from .config import WatchEntry
+        with self._lock:
+            rows = self._exec("SELECT * FROM watchlist ORDER BY item").fetchall()
+        return [WatchEntry(r["item"], r["side"],
+                           Decimal(r["max_price"]) if r["max_price"] else None,
+                           Decimal(r["min_price"]) if r["min_price"] else None, r["key"])
+                for r in rows]
+
+    def put_watch(self, w) -> None:
+        with self._lock:
+            self._exec(
+                "INSERT INTO watchlist(key, item, side, max_price, min_price, updated_at) "
+                "VALUES (?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET item=excluded.item, "
+                "side=excluded.side, max_price=excluded.max_price, "
+                "min_price=excluded.min_price, updated_at=excluded.updated_at",
+                (w.key, w.item, w.side,
+                 str(w.max_price) if w.max_price is not None else None,
+                 str(w.min_price) if w.min_price is not None else None, _now()))
+
+    def remove_watch(self, key: str) -> bool:
+        with self._lock:
+            return self._exec("DELETE FROM watchlist WHERE key=?", (key,)).rowcount > 0
+
+    # ------------------------------------------------------------ kv
+
+    def get_kv(self, key: str) -> str | None:
+        with self._lock:
+            row = self._exec("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
+        return None if row is None else row["value"]
+
+    def set_kv(self, key: str, value: str) -> None:
+        with self._lock:
+            self._exec("INSERT INTO kv(key, value) VALUES (?, ?) ON CONFLICT(key) "
+                       "DO UPDATE SET value=excluded.value", (key, value))
+
+    def delete_kv(self, key: str) -> None:
+        with self._lock:
+            self._exec("DELETE FROM kv WHERE key=?", (key,))
 
     # ------------------------------------------------------------ hold
 

@@ -54,3 +54,5 @@ def setup_logging(level: str = "INFO", log_dir: Path | None = None, json_file: b
         fh.addFilter(RedactFilter())
         root.addHandler(fh)
     logging.getLogger("aiohttp").setLevel(logging.WARNING)
+    logging.getLogger("discord").setLevel(logging.WARNING)
+    logging.getLogger("discord.client").setLevel(logging.ERROR)  # "voice not supported" noise

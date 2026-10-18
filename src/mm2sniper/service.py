@@ -23,6 +23,7 @@ from .claim import ClaimEngine
 from .config import Settings
 from .http import AuthError, BadResponse, HttpClient, MarketplaceError, RateLimited
 from .lock import InstanceLock
+from .watchlist import WatchList
 from .marketplaces.base import MarketplaceAdapter
 from .models import ClaimStatus, Listing
 from .notify import DiscordNotifier
@@ -60,6 +61,7 @@ class Watcher:
         self.adapter = adapter
         self.notifier = notifier
         self.engine = ClaimEngine(settings, store, adapter, notifier)
+        self.watchlist = WatchList(settings, store)
         self._stop = asyncio.Event()
         self._down_alerted = False
         self.started_at = _now()
@@ -81,11 +83,12 @@ class Watcher:
     async def process(self, listings: list[Listing]) -> list[tuple[Listing, str]]:
         """Evaluate a sweep. Returns [(listing, action)] for watched items acted on."""
         acted: list[tuple[Listing, str]] = []
+        entries = self.watchlist.entries()   # once per sweep: Discord edits apply next poll
         for l in listings:
             change = self.store.observe(l)
             if not is_trigger(self.s, l, change):
                 continue
-            watch = self.s.watch_for(l.name, l.slug, l.side)
+            watch = WatchList.find(entries, l.name, l.slug, l.side)
             if watch is None:
                 continue
             ok, why = self.engine.eligible(l, watch)
@@ -116,7 +119,8 @@ class Watcher:
         self.notifier.system(
             "🟢 MM2 sniper started",
             f"v{__version__} · mode **{self.s.mode}** · watching "
-            f"{len(self.s.watch)} item(s) every {self.s.poll_interval_seconds:g}s"
+            f"{len(self.watchlist.entries())} item(s) every {self.s.poll_interval_seconds:g}s"
+            + (" · /watch commands on" if self.watchlist.managed else "")
             + ("" if self.adapter.capabilities.claim or self.s.mode == "monitor"
                else f"\n⚠️ {self.adapter.capabilities.claim_unavailable_reason}"),
             "ok")
@@ -134,6 +138,12 @@ class Watcher:
                 st.paused_reason = f"waiting for trade: {hold.name}" if hold else "hold"
                 self.write_status()
                 if await self._sleep(self.s.claim_status_interval_seconds):
+                    break
+                continue
+            if self.watchlist.paused:
+                st.paused_reason = "paused from Discord (/watch resume)"
+                self.write_status()
+                if await self._sleep(self.s.poll_interval_seconds):
                     break
                 continue
             st.paused_reason = None
@@ -271,6 +281,11 @@ async def _run_service(settings: Settings):
                                mention=settings.discord_mention)
     notifier.start()
     watcher = Watcher(settings, store, adapter, notifier)
+    bot = None
+    if settings.discord_bot_token:
+        from .discord_bot import Commands, start_bot
+        bot = await start_bot(settings, Commands(settings, store, adapter, watcher.watchlist),
+                              notifier)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
@@ -284,6 +299,8 @@ async def _run_service(settings: Settings):
         log.info("shutting down")
         notifier.system("⏹️ MM2 sniper stopped", "Service shut down.", "info")
         watcher.write_status()
+        if bot is not None:
+            await bot.close()
         await notifier.stop()
         await adapter.close()
         await http.close()

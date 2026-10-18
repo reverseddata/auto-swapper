@@ -62,6 +62,39 @@ Run `mm2sniper probe` to confirm every name matches something.
 Global caps in `.env` apply to every item: `MAX_CLAIM_PRICE` (largest single
 withdraw) and `MAX_DAILY_SPEND` (per UTC day).
 
+### Managing items from Discord (recommended on Railway)
+
+With a Discord bot, you change the watchlist with slash commands. No env edits and
+no redeploys. Changes apply on the next poll.
+
+| Command | Does |
+|---|---|
+| `/watch add item side max min` | Watch an item or change its limits (name autocompletes) |
+| `/watch remove item` | Stop watching it |
+| `/watch list` | Show what is watched |
+| `/watch pause` / `/watch resume` | Stop / restart sniping |
+| `/balance` | Your BloxSwaps account and balance |
+| `/status` | Mode, pause, open claim, last poll |
+
+Example: `/watch add item:Harvester side:withdraw max:330`
+
+Only the user in `DISCORD_MENTION_USER_ID` can run them; everyone else is refused,
+and replies are visible only to you. Names are checked against BloxSwaps, and claim
+mode still refuses an entry without a price limit.
+
+Setup (one time):
+
+1. https://discord.com/developers/applications → **New Application** → **Bot** →
+   **Reset Token**, copy it into `DISCORD_BOT_TOKEN`. No privileged intents are needed.
+2. **OAuth2 → URL Generator**: scopes `bot` and `applications.commands`, no permissions.
+   Open the URL and add the bot to your server.
+3. Set `DISCORD_MENTION_USER_ID` to your own user ID. Optionally set `DISCORD_GUILD_ID`
+   (your server's ID) so the commands appear instantly instead of after a few minutes.
+
+On the first start with the bot, the items from `WATCH` / `config.toml` are copied
+into the bot's list once. After that the Discord list is what counts, and `WATCH`
+is ignored. The list lives in `DATA_DIR`, so on Railway it needs the volume.
+
 ## Getting your token
 
 Claim mode needs your logged-in BloxSwaps session.
@@ -93,8 +126,9 @@ only when the bot reports "token was rejected". Logging out of BloxSwaps ends it
 1. Push this repo to GitHub, then in Railway: **New Project → Deploy from GitHub repo**.
    The `Dockerfile` is used automatically. No port or domain is needed; it is a worker.
 2. **Variables**: add `MODE`, `DISCORD_WEBHOOK_URL`, `BLOXSWAPS_TOKEN` (claim mode),
-   `WATCH`, and optionally `MAX_CLAIM_PRICE`, `MAX_DAILY_SPEND`, `DISCORD_MENTION_USER_ID`.
-   Paste the token without quotes in Railway.
+   `DISCORD_MENTION_USER_ID`, and either `DISCORD_BOT_TOKEN` (manage items with
+   `/watch`, recommended) or `WATCH`. Optional: `MAX_CLAIM_PRICE`, `MAX_DAILY_SPEND`,
+   `DISCORD_GUILD_ID`. Paste tokens without quotes in Railway.
 3. **Volume**: add one mounted at `/app/data`. It holds the claim history, the pause
    state and the refreshed session. Without it, a redeploy forgets an open claim and
    the session, and you would have to paste the token again.

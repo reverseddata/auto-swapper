@@ -333,3 +333,9 @@ def test_late_join_link_is_sent_as_a_follow_up(tmp_path, monkeypatch):
     assert len(claimed) == 2 and claimed[1][2].server_link == link
     import json as _json
     assert _json.loads(store.recent_claims()[0]["handoff"])["server_link"] == link
+
+
+def test_ended_delivery_gives_no_join_link():
+    for status in ("DONE", "CANCELLED", "RETURNING"):
+        trade = {"delivery": {"status": status, "server": {"id": "srv"}, "bot": {"name": "b"}}}
+        assert handoff_from_trade(trade) == ("", "")

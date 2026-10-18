@@ -12,6 +12,7 @@ requires-python = ">=3.10"
 dependencies = [
     "aiohttp>=3.11,<4",
     "python-dotenv>=1.0,<2",
+    "discord.py>=2.4,<3",
     "tomli>=2.0; python_version < '3.11'",
 ]
 

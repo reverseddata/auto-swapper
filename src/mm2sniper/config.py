@@ -19,6 +19,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
 from .models import norm_name
+from .notify import register_secret
 
 MODES = ("monitor", "claim")
 MIN_POLL_INTERVAL = 10.0
@@ -34,6 +35,19 @@ class ConfigError(ValueError):
 
 
 SIDES = ("withdraw", "deposit", "both")
+
+
+def limit_problems(w: "WatchEntry", max_claim_price: Decimal | None) -> list[str]:
+    """Claim mode refuses an entry that could withdraw at any price or deposit for
+    any payout. Shared by config loading and the Discord /watch add command."""
+    out = []
+    if w.side in ("withdraw", "both") and w.max_price is None and max_claim_price is None:
+        out.append(f"claim mode: {w.item!r} would withdraw at any price. Set a max price "
+                   "(max_price, Item<=N in WATCH, max: in /watch add) or MAX_CLAIM_PRICE")
+    if w.side in ("deposit", "both") and w.min_price is None:
+        out.append(f"claim mode: {w.item!r} would deposit for any payout. Set a min price "
+                   "(min_price, Item@deposit>=N in WATCH, min: in /watch add)")
+    return out
 # "Item", "Item@deposit", "Item<=330", "Item@both<=50>=10"
 WATCH_ENTRY_RE = re.compile(r"^(?P<item>[^@<>=]+?)\s*(?:@\s*(?P<side>[A-Za-z]+))?\s*"
                             r"(?P<limits>(?:(?:<=|>=)\s*[^<>=\s]+\s*)*)$")
@@ -68,6 +82,10 @@ class Settings:
     discord_webhook_url: str = ""
     discord_username: str = "MM2 Sniper"
     discord_mention: str = ""                   # "<@id>" pinged on claims
+    discord_owner_id: str = ""                  # the only user allowed to run commands
+    # Discord bot for /watch commands. Optional; unset = webhook alerts only.
+    discord_bot_token: str = field(default="", repr=False)
+    discord_guild_id: str = ""                  # optional: commands appear instantly here
     alert_cooldown_seconds: float = 900.0
 
     poll_interval_seconds: float = 30.0
@@ -98,6 +116,7 @@ class Settings:
         return {
             "mode": self.mode,
             "discord_webhook": "set" if self.discord_webhook_url else "not set",
+            "discord_bot": "set" if self.discord_bot_token else "not set",
             "poll_interval_seconds": self.poll_interval_seconds,
             "watch": [{"item": w.item, "side": w.side,
                        "max_price": str(w.max_price) if w.max_price else None,
@@ -209,6 +228,20 @@ def load_settings(config_file: str | os.PathLike | None = None,
         problems.append("DISCORD_MENTION_USER_ID must be a numeric Discord user ID")
     elif mention:
         s.discord_mention = f"<@{mention}>"
+        s.discord_owner_id = mention
+    if raw.get("discord_bot_token"):
+        problems.append("put the bot token in the DISCORD_BOT_TOKEN environment variable "
+                        "(.env), not in the config file")
+    s.discord_bot_token = env.get("DISCORD_BOT_TOKEN", "").strip()
+    if s.discord_bot_token:
+        register_secret(s.discord_bot_token)
+        if not s.discord_owner_id:
+            problems.append("DISCORD_BOT_TOKEN needs DISCORD_MENTION_USER_ID: it is the only "
+                            "Discord user allowed to use the /watch commands")
+    guild = str(pick("DISCORD_GUILD_ID", "discord_guild_id") or "").strip()
+    if guild and not guild.isdigit():
+        problems.append("DISCORD_GUILD_ID must be a numeric server ID")
+    s.discord_guild_id = guild
     s.alert_cooldown_seconds = flt(raw.get("alert_cooldown_seconds"),
                                    "alert_cooldown_seconds", 900.0)
 
@@ -284,9 +317,9 @@ def load_settings(config_file: str | os.PathLike | None = None,
         if key and key not in seen_keys:
             seen_keys.add(key)
             s.watch.append(WatchEntry(item, side, max_p, min_p, key=key))
-    if not s.watch:
-        problems.append("the watchlist is empty: add [[watch]] entries to config.toml "
-                        "or set WATCH in .env")
+    if not s.watch and not s.discord_bot_token:
+        problems.append("the watchlist is empty: add [[watch]] entries to config.toml, "
+                        "set WATCH in .env, or set DISCORD_BOT_TOKEN and use /watch add")
 
     s.bloxswaps_secrets = {k: v for k, v in env.items()
                            if k.startswith("BLOXSWAPS_") and v.strip()}
@@ -299,14 +332,7 @@ def load_settings(config_file: str | os.PathLike | None = None,
                             "\"Getting your token\")")
         # Claim mode spends or gives away real items: every entry needs a price limit.
         for w in s.watch:
-            if (w.side in ("withdraw", "both") and w.max_price is None
-                    and s.max_claim_price is None):
-                problems.append(f"claim mode: {w.item!r} would withdraw at any price. Set "
-                                "max_price, write it as Item<=N in WATCH, or set "
-                                "MAX_CLAIM_PRICE")
-            if w.side in ("deposit", "both") and w.min_price is None:
-                problems.append(f"claim mode: {w.item!r} would deposit for any payout. Set "
-                                "min_price, or write it as Item@deposit>=N in WATCH")
+            problems.extend(limit_problems(w, s.max_claim_price))
 
     if problems:
         raise ConfigError(problems)

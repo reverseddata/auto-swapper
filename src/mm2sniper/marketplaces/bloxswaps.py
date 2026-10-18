@@ -62,6 +62,7 @@ MM2_PLACE_ID = "142823291"
 # A server id goes into a link people click, so only plain ids are accepted.
 _SERVER_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 _SAFE_JOIN_PREFIXES = ("https://www.roblox.com/", "roblox://")
+_DELIVERY_ENDED = ("DONE", "CANCELLED", "RETURNING")
 _TRADE_STATUS = {
     "IN_PROGRESS": ClaimStatus.CLAIMED,
     "COMPLETED": ClaimStatus.COMPLETED,
@@ -149,6 +150,8 @@ def handoff_from_trade(trade: dict) -> tuple[str, str]:
     Anything malformed gives ("", ""), so a bad hand-off never loses the trade id."""
     try:
         delivery = trade.get("delivery") or {}
+        if delivery.get("status") in _DELIVERY_ENDED:
+            return "", ""  # the site shows no join button for an ended delivery either
         bot = delivery.get("bot") or {}
         server_id = str((delivery.get("server") or {}).get("id") or "")
         if server_id:
