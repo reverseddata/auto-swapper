@@ -149,24 +149,43 @@ class Store:
 
     def observe(self, listing: Listing) -> Change:
         """Record a sighting and report what changed since the last one."""
-        key = (listing.marketplace, listing.listing_id)
-        price, avail, now = str(listing.price), bool(listing.available), _now()
+        return self.observe_many([listing])[0]
+
+    def observe_many(self, listings: list[Listing]) -> list[Change]:
+        """observe() for a whole sweep in one transaction: one disk sync, not one
+        per listing. Slow enough to run off the event loop (asyncio.to_thread)."""
+        now = _now()
+        prevs: list = []
         try:
             with self._lock:
-                row = self._exec("SELECT price, available FROM seen WHERE marketplace=? "
-                                 "AND listing_id=?", key).fetchone()
-                self._exec(
-                    "INSERT INTO seen(marketplace, listing_id, name, price, available,"
-                    " first_seen, last_seen) VALUES (?,?,?,?,?,?,?) "
-                    "ON CONFLICT(marketplace, listing_id) DO UPDATE SET name=excluded.name,"
-                    " price=excluded.price, available=excluded.available,"
-                    " last_seen=excluded.last_seen",
-                    (*key, listing.name, price, int(avail), now, now))
-            prev = None if row is None else (row["price"], bool(row["available"]))
+                self._exec("BEGIN IMMEDIATE")
+                try:
+                    for l in listings:
+                        key = (l.marketplace, l.listing_id)
+                        row = self._exec("SELECT price, available FROM seen WHERE "
+                                         "marketplace=? AND listing_id=?", key).fetchone()
+                        self._exec(
+                            "INSERT INTO seen(marketplace, listing_id, name, price, available,"
+                            " first_seen, last_seen) VALUES (?,?,?,?,?,?,?) "
+                            "ON CONFLICT(marketplace, listing_id) DO UPDATE SET "
+                            "name=excluded.name, price=excluded.price, "
+                            "available=excluded.available, last_seen=excluded.last_seen",
+                            (*key, l.name, str(l.price), int(bool(l.available)), now, now))
+                        prevs.append(None if row is None
+                                     else (row["price"], bool(row["available"])))
+                    self._exec("COMMIT")
+                except BaseException:
+                    if self._conn.in_transaction:
+                        self._conn.execute("ROLLBACK")
+                    raise
         except StoreError as e:
             log.warning("seen-store unavailable, using in-memory dedupe: %s", e)
-            prev = self._mem_seen.get(key)
-        self._mem_seen[key] = (price, avail)
+            prevs = [self._mem_seen.get((l.marketplace, l.listing_id)) for l in listings]
+        return [self._change(l, prev) for l, prev in zip(listings, prevs)]
+
+    def _change(self, listing: Listing, prev) -> Change:
+        price, avail = str(listing.price), bool(listing.available)
+        self._mem_seen[(listing.marketplace, listing.listing_id)] = (price, avail)
         if not avail:
             return Change.UNAVAILABLE
         if prev is None:

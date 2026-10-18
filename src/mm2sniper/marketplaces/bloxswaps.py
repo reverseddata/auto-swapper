@@ -339,7 +339,7 @@ class BloxSwapsAdapter(MarketplaceAdapter):
                                            timeout=self.timeout, etag=self._etag)
         if res.not_modified:
             return self._cache
-        listings, bad = normalize_rows(res.data)
+        listings, bad = await asyncio.to_thread(normalize_rows, res.data)
         if bad:
             log.debug("bloxswaps: skipped %d malformed rows", bad)
         if not listings:

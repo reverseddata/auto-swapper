@@ -84,8 +84,9 @@ class Watcher:
         """Evaluate a sweep. Returns [(listing, action)] for watched items acted on."""
         acted: list[tuple[Listing, str]] = []
         entries = self.watchlist.entries()   # once per sweep: Discord edits apply next poll
-        for l in listings:
-            change = self.store.observe(l)
+        # Off the event loop, so Discord commands stay responsive during a sweep.
+        changes = await asyncio.to_thread(self.store.observe_many, listings)
+        for l, change in zip(listings, changes):
             if not is_trigger(self.s, l, change):
                 continue
             watch = WatchList.find(entries, l.name, l.slug, l.side)
