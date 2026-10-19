@@ -94,3 +94,9 @@ def test_watch_env_min_quantity(tmp_path):
     m = WATCH_ENTRY_RE.match("Harvester<=330 x3")
     assert m and m["item"] == "Harvester" and m["qty"] == "3" and "330" in m["limits"]
     assert WATCH_ENTRY_RE.match("Harvester")["qty"] is None
+
+
+def test_watch_env_quantity_range():
+    from mm2sniper.config import WATCH_ENTRY_RE
+    m = WATCH_ENTRY_RE.match("Emberbow@deposit>=2700 x1-4")
+    assert m["side"] == "deposit" and m["qty"] == "1" and m["maxqty"] == "4"

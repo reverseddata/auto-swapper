@@ -48,10 +48,11 @@ def limit_problems(w: "WatchEntry", max_claim_price: Decimal | None) -> list[str
         out.append(f"claim mode: {w.item!r} would deposit for any payout. Set a min price "
                    "(min_price, Item@deposit>=N in WATCH, min: in /watch add)")
     return out
-# "Item", "Item@deposit", "Item<=330", "Item@both<=50>=10", "Item<=330 x3"
+# "Item", "Item@deposit", "Item<=330", "Item@both<=50>=10", "Item<=330 x3",
+# "Item@deposit>=30 x1-4" (at least 1, at most 4 units per claim)
 WATCH_ENTRY_RE = re.compile(r"^(?P<item>[^@<>=]+?)\s*(?:@\s*(?P<side>[A-Za-z]+))?\s*"
                             r"(?P<limits>(?:(?:<=|>=)\s*[^<>=\sx]+\s*)*)"
-                            r"(?:x\s*(?P<qty>\d+))?\s*$")
+                            r"(?:x\s*(?P<qty>\d+)(?:\s*-\s*(?P<maxqty>\d+))?)?\s*$")
 
 
 @dataclass(frozen=True)
@@ -61,7 +62,10 @@ class WatchEntry:
     max_price: Decimal | None = None  # withdraw: claim only at or below this
     min_price: Decimal | None = None  # deposit: claim only if they pay at least this
     key: str = ""                   # normalized name or slug used for matching
-    min_qty: int = 1                # withdraw: claim only when this many can be taken
+    min_qty: int = 1                # claim only when at least this many units fit
+    # Most units per claim. Withdraw: None = all in stock. Deposit: how many you
+    # have to give; None = 1 (the bot can't see your inventory).
+    max_qty: int | None = None
 
     def matches(self, name: str, slug: str, side: str) -> bool:
         return (self.side in (side, "both")
@@ -303,15 +307,17 @@ def load_settings(config_file: str | os.PathLike | None = None,
         seen_keys.add(key)
         try:
             min_qty = int(w.get("min_quantity") or 1)
-            if min_qty < 1:
+            max_qty = int(w["max_quantity"]) if w.get("max_quantity") else None
+            if min_qty < 1 or (max_qty is not None and max_qty < min_qty):
                 raise ValueError
         except (TypeError, ValueError):
-            problems.append(f"watch entry {item!r}: min_quantity must be a whole number, 1+")
+            problems.append(f"watch entry {item!r}: min_quantity/max_quantity must be whole "
+                            "numbers, 1+, with max at least min")
             continue
         s.watch.append(WatchEntry(item, side,
                                   limit(w.get("max_price"), f"max_price for {item!r}", True),
                                   limit(w.get("min_price"), f"min_price for {item!r}", False),
-                                  key, min_qty))
+                                  key, min_qty, max_qty))
     # Quick env-only watchlist, handy on Railway:
     #   WATCH="Harvester<=330, Chroma Seer@deposit>=30, Icepiercer@both<=50>=10"
     for part in [p.strip() for p in env.get("WATCH", "").split(",") if p.strip()]:
@@ -334,8 +340,13 @@ def load_settings(config_file: str | os.PathLike | None = None,
                 min_p = limit(val, f"WATCH min price for {item!r}", False)
         if key and key not in seen_keys:
             seen_keys.add(key)
+            mn_q = max(1, int(m["qty"] or 1))
+            mx_q = int(m["maxqty"]) if m["maxqty"] else None
+            if mx_q is not None and mx_q < mn_q:
+                problems.append(f"WATCH entry {part!r}: x{mn_q}-{mx_q} has max below min")
+                continue
             s.watch.append(WatchEntry(item, side, max_p, min_p, key=key,
-                                      min_qty=max(1, int(m["qty"] or 1))))
+                                      min_qty=mn_q, max_qty=mx_q))
     if not s.watch and not s.discord_bot_token:
         problems.append("the watchlist is empty: add [[watch]] entries to config.toml, "
                         "set WATCH in .env, or set DISCORD_BOT_TOKEN and use /watch add")

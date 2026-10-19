@@ -395,7 +395,7 @@ class BloxSwapsAdapter(MarketplaceAdapter):
     # ------------------------------------------------------------ claiming
 
     async def claim_listing(self, listing: Listing, idem_key: str) -> ClaimOutcome:
-        """POST /trades for one item on one side (withdraw: listing.quantity units). Withdraw takes from bot stock
+        """POST /trades for one item on one side (listing.quantity units). Withdraw takes from bot stock
         (bot gives it: APP leg). Deposit gives an item to the bot (USER leg).
 
         The site has no idempotency key, so the engine's local reservation is what
@@ -417,7 +417,7 @@ class BloxSwapsAdapter(MarketplaceAdapter):
         except MarketplaceError as e:
             # Timeout or rate limit before anything was sent: skip, the next poll retries.
             return ClaimOutcome(ClaimStatus.SKIPPED, detail=f"session unreachable, nothing sent: {e}")
-        qty = max(1, listing.quantity) if listing.side == "withdraw" else 1
+        qty = max(1, listing.quantity)
         try:
             res = await self._post_trade(item_id, qty, listing.side)
             floor = max(1, int(listing.extra.get("min_quantity") or 1))

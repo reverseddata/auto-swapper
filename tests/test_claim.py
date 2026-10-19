@@ -233,3 +233,45 @@ def test_min_quantity_claims_when_met(tmp_path):
     s, store, n, eng = setup(tmp_path, a)
     assert run(eng.attempt(l, replace(s.watch[0], min_qty=3))).status is ClaimStatus.CLAIMED
     assert a.claimed[0].quantity == 3
+
+
+def _deposit(slots):
+    return replace(by_id(listings("bloxswaps_after.json"), "chroma-seer:deposit"),
+                   quantity=slots, available=True)
+
+
+def _deposit_watch(s, **kw):
+    w = next(w for w in s.watch if w.side in ("deposit", "both"))
+    return replace(w, **kw)
+
+
+def test_deposit_gives_one_by_default(tmp_path):
+    l = _deposit(5)
+    a = FakeAdapter([l])
+    s, store, n, eng = setup(tmp_path, a)
+    assert run(eng.attempt(l, _deposit_watch(s))).status is ClaimStatus.CLAIMED
+    assert a.claimed[0].quantity == 1
+
+
+def test_deposit_fills_slots_up_to_max_qty(tmp_path):
+    l = _deposit(5)
+    a = FakeAdapter([l])
+    s, store, n, eng = setup(tmp_path, a)
+    run(eng.attempt(l, _deposit_watch(s, max_qty=3)))
+    assert a.claimed[0].quantity == 3
+
+
+def test_deposit_limited_by_open_slots(tmp_path):
+    l = _deposit(2)
+    a = FakeAdapter([l])
+    s, store, n, eng = setup(tmp_path, a)
+    run(eng.attempt(l, _deposit_watch(s, max_qty=4)))
+    assert a.claimed[0].quantity == 2
+
+
+def test_deposit_min_qty_waits_for_slots(tmp_path):
+    l = _deposit(2)
+    a = FakeAdapter([l])
+    s, store, n, eng = setup(tmp_path, a)
+    out = run(eng.attempt(l, _deposit_watch(s, min_qty=3, max_qty=3)))
+    assert out.status is ClaimStatus.SKIPPED and a.claimed == []

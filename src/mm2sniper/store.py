@@ -141,7 +141,8 @@ class Store:
     def _migrate(self):
         """Columns added after the first release, for databases made before them."""
         for table, col, decl in (("seen", "quantity", "INTEGER"),
-                                 ("watchlist", "min_qty", "INTEGER")):
+                                 ("watchlist", "min_qty", "INTEGER"),
+                                 ("watchlist", "max_qty", "INTEGER")):
             cols = {r["name"] for r in self._conn.execute(f"PRAGMA table_info({table})")}
             if col not in cols:
                 self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
@@ -333,20 +334,20 @@ class Store:
         return [WatchEntry(r["item"], r["side"],
                            Decimal(r["max_price"]) if r["max_price"] else None,
                            Decimal(r["min_price"]) if r["min_price"] else None, r["key"],
-                           r["min_qty"] or 1)
+                           r["min_qty"] or 1, r["max_qty"] or None)
                 for r in rows]
 
     def put_watch(self, w) -> None:
         with self._lock:
             self._exec(
                 "INSERT INTO watchlist(key, item, side, max_price, min_price, min_qty, "
-                "updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET "
+                "max_qty, updated_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET "
                 "item=excluded.item, side=excluded.side, max_price=excluded.max_price, "
-                "min_price=excluded.min_price, min_qty=excluded.min_qty, "
+                "min_price=excluded.min_price, min_qty=excluded.min_qty, max_qty=excluded.max_qty, "
                 "updated_at=excluded.updated_at",
                 (w.key, w.item, w.side,
                  str(w.max_price) if w.max_price is not None else None,
-                 str(w.min_price) if w.min_price is not None else None, w.min_qty, _now()))
+                 str(w.min_price) if w.min_price is not None else None, w.min_qty, w.max_qty, _now()))
 
     def remove_watch(self, key: str) -> bool:
         with self._lock:

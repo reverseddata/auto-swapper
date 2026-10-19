@@ -67,8 +67,9 @@ class ClaimEngine:
     def eligible(self, listing: Listing, watch: WatchEntry) -> tuple[bool, str]:
         if not listing.available:
             return False, "not available"
-        if listing.side == "withdraw" and listing.quantity < watch.min_qty:
-            return False, f"only {listing.quantity} in stock, minimum is {watch.min_qty}"
+        if listing.quantity < watch.min_qty:
+            what = "in stock" if listing.side == "withdraw" else "deposit slots open"
+            return False, f"only {listing.quantity} {what}, minimum is {watch.min_qty}"
         if not watch.price_ok(listing.side, listing.price):
             return False, f"price {listing.price} outside watch limit"
         if (listing.side == "withdraw" and self.s.max_claim_price is not None
@@ -89,13 +90,17 @@ class ClaimEngine:
 
             # One key per detection: re-submitting the same sighting can never claim twice.
             key = f"{listing.listing_id}:{listing.price}:{listing.detected_at.timestamp():.6f}"
-            # Withdraw takes every unit in stock, up to MAX_CLAIM_QUANTITY and the
-            # daily cap; a deposit gives one item.
-            want = 1
+            # Withdraw takes every unit in stock; a deposit fills open slots up to
+            # the item's max_qty (default 1). Both stop at MAX_CLAIM_QUANTITY, and a
+            # withdraw at the daily cap.
             if listing.side == "withdraw":
                 want = max(1, listing.quantity)
-                if self.s.max_claim_quantity:
-                    want = min(want, self.s.max_claim_quantity)
+                if watch.max_qty:
+                    want = min(want, watch.max_qty)
+            else:
+                want = max(1, min(listing.quantity, watch.max_qty or 1))
+            if self.s.max_claim_quantity:
+                want = min(want, self.s.max_claim_quantity)
             res = self.store.reserve_claim(idem_key=key, listing=listing,
                                            daily_limit=self.s.max_daily_spend, quantity=want)
             if not res.ok:
@@ -113,8 +118,10 @@ class ClaimEngine:
                 log.info("claim skipped for %s: %s", listing.name, fresh)
                 return ClaimOutcome(ClaimStatus.SKIPPED, detail=fresh)
             qty = await self._quantity(fresh, res.quantity)
-            if fresh.side == "withdraw" and qty < watch.min_qty:
-                why = f"can only take {qty} (balance or caps), minimum is {watch.min_qty}"
+            if qty < watch.min_qty:
+                why = (f"can only take {qty} (balance or caps)" if fresh.side == "withdraw"
+                       else f"only {qty} deposit slot(s) left")
+                why += f", minimum is {watch.min_qty}"
                 self.store.update_claim(key, ClaimStatus.SKIPPED, detail=why)
                 log.info("claim skipped for %s: %s", listing.name, why)
                 return ClaimOutcome(ClaimStatus.SKIPPED, detail=why)
@@ -132,11 +139,11 @@ class ClaimEngine:
             return outcome
 
     async def _quantity(self, fresh: Listing, granted: int) -> int:
-        """Units to claim: one for a deposit; for a withdraw, what is still in
-        stock, within the reservation, and what the site balance can pay for."""
-        if fresh.side != "withdraw":
-            return 1
+        """Units to claim: what is still in stock (withdraw) or open (deposit),
+        within the reservation; a withdraw also within the site balance."""
         qty = max(1, min(granted, fresh.quantity))
+        if fresh.side != "withdraw":
+            return qty
         if qty > 1 and fresh.price > 0 and hasattr(self.adapter, "get_balance"):
             try:
                 balance = await asyncio.wait_for(self.adapter.get_balance(),
@@ -209,9 +216,10 @@ class ClaimEngine:
             if self.s.max_claim_price is not None and each > self.s.max_claim_price:
                 problems.append(f"above MAX_CLAIM_PRICE {self.s.max_claim_price}")
         else:
-            if charged < listing.price:
-                problems.append(f"pays {charged}, listed at {listing.price}")
-            if watch.min_price is not None and charged < watch.min_price:
+            qty = max(1, listing.quantity)
+            if charged < listing.price * qty:
+                problems.append(f"pays {charged} for {qty}, listed at {listing.price} each")
+            if watch.min_price is not None and charged / qty < watch.min_price:
                 problems.append(f"below min_price {watch.min_price}")
         if problems:
             log.warning("claimed %s outside limits: %s", listing.name, "; ".join(problems))
