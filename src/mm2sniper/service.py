@@ -126,7 +126,9 @@ class Watcher:
             + ("" if self.adapter.capabilities.claim or self.s.mode == "monitor"
                else f"\n⚠️ {self.adapter.capabilities.claim_unavailable_reason}"),
             "ok")
-        backoff = self.s.poll_interval_seconds
+        # Waits that must not shrink to 0 with POLL_INTERVAL_SECONDS=0 (errors, pause).
+        idle = max(self.s.poll_interval_seconds, 1.0)
+        backoff = idle
         while not self._stop.is_set():
             t0 = time.monotonic()
             # ---- hold: no polling until the claim is finished
@@ -145,7 +147,7 @@ class Watcher:
             if self.watchlist.paused:
                 st.paused_reason = "paused from Discord (/watch resume)"
                 self.write_status()
-                if await self._sleep(self.s.poll_interval_seconds):
+                if await self._sleep(idle):
                     break
                 continue
             st.paused_reason = None
@@ -187,7 +189,7 @@ class Watcher:
                 st.consecutive_failures += 1
                 st.last_error = str(e)
                 st.reachable = False
-                backoff = min(MAX_BACKOFF, max(self.s.poll_interval_seconds, backoff * 2))
+                backoff = min(MAX_BACKOFF, max(idle, backoff * 2))
                 log.warning("poll failed (%d in a row): %s; retrying in %.0fs",
                             st.consecutive_failures, e, backoff)
                 if st.consecutive_failures >= DOWN_AFTER and not self._down_alerted:
@@ -213,7 +215,7 @@ class Watcher:
             st.reachable, st.last_success, st.last_error = True, _now(), None
             st.consecutive_failures, st.rate_limited_until = 0, None
             st.listings_tracked = len(listings)
-            backoff = self.s.poll_interval_seconds
+            backoff = idle
             try:
                 await self.process(listings)
             except Exception:  # noqa: BLE001

@@ -22,7 +22,7 @@ from .models import norm_name
 from .notify import register_secret
 
 MODES = ("monitor", "claim")
-MIN_POLL_INTERVAL = 1.0
+MIN_POLL_INTERVAL = 0.0
 WEBHOOK_RE = re.compile(
     r"^https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+$")
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
@@ -273,7 +273,7 @@ def load_settings(config_file: str | os.PathLike | None = None,
         "CLAIM_HOLD_TIMEOUT_MINUTES", 30.0)
     s.claim_status_interval_seconds = flt(raw.get("claim_status_interval_seconds"),
                                           "claim_status_interval_seconds", 30.0,
-                                          minimum=MIN_POLL_INTERVAL)
+                                          minimum=1.0)
     s.act_on_first_sight = str(pick("ACT_ON_FIRST_SIGHT", "act_on_first_sight") or "false"
                                ).strip().lower() in ("1", "true", "yes", "on")
 
