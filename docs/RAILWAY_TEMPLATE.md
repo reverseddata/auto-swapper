@@ -26,6 +26,7 @@ button with the code Railway gives you.
 | Name | Default | Required | Description shown to users |
 |---|---|---|---|
 | `MODE` | `monitor` | yes | `monitor` = only ping Discord. `claim` = claim on your BloxSwaps account. Start with monitor. |
+| `MARKETS` | `bloxswaps` | no | bloxswaps, starpets or both. StarPets is alerts only. Switch later with /market. |
 | `DISCORD_WEBHOOK_URL` | | yes | Discord channel webhook for alerts (Channel settings → Integrations → Webhooks). |
 | `DISCORD_MENTION_USER_ID` | | yes | Your Discord user ID. Pinged on claims, and the only user allowed to use the commands. |
 | `DISCORD_BOT_TOKEN` | | yes | Bot token from discord.com/developers, for the /watch commands. |

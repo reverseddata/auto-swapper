@@ -13,6 +13,7 @@ from .store import Store
 
 SEEDED_KEY = "watch_seeded"
 PAUSED_KEY = "paused"
+MARKETS_KEY = "markets"
 
 
 class WatchList:
@@ -32,6 +33,20 @@ class WatchList:
     @staticmethod
     def find(entries: list[WatchEntry], name: str, slug: str, side: str) -> WatchEntry | None:
         return next((w for w in entries if w.matches(name, slug, side)), None)
+
+    # ---- which marketplaces are polled (MARKETS, overridden by /market)
+
+    def markets(self) -> set[str]:
+        saved = self.store.get_kv(MARKETS_KEY) if self.managed else None
+        if saved:
+            from .config import parse_markets
+            parsed = parse_markets(saved)
+            if parsed:
+                return parsed
+        return set(self.s.markets)
+
+    def set_markets(self, markets: set[str]):
+        self.store.set_kv(MARKETS_KEY, ",".join(sorted(markets)))
 
     # ---- pause from Discord (separate from the claim hold)
 

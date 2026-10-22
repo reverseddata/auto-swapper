@@ -99,7 +99,9 @@ class Watcher:
                 continue
             log.info("watched item %s (%s) %s: %s x%d at %s", l.name, l.side, change.value,
                      l.listing_id, l.quantity, l.price)
-            if self.s.mode == "monitor":
+            can_claim = getattr(self.adapter, "can_claim", None)
+            if self.s.mode == "monitor" or (can_claim is not None and not can_claim(l)):
+                # Monitor mode, or a market that can't claim (StarPets): alert only.
                 self.notifier.available(l, "monitor")
                 acted.append((l, "notified"))
                 continue
@@ -123,6 +125,7 @@ class Watcher:
             f"v{__version__} · mode **{self.s.mode}** · watching "
             f"{len(self.watchlist.entries())} item(s) every {self.s.poll_interval_seconds:g}s"
             + (" · /watch commands on" if self.watchlist.managed else "")
+            + f" · markets: {', '.join(sorted(self.watchlist.markets()))}"
             + ("" if self.adapter.capabilities.claim or self.s.mode == "monitor"
                else f"\n⚠️ {self.adapter.capabilities.claim_unavailable_reason}"),
             "ok")
@@ -260,12 +263,18 @@ class Watcher:
             log.debug("could not write status file: %s", e)
 
 
-def build_adapter(settings: Settings, http: HttpClient) -> MarketplaceAdapter:
+def build_adapter(settings: Settings, http: HttpClient, enabled=None) -> MarketplaceAdapter:
+    """BloxSwaps (claims) plus StarPets (alerts), polled as `enabled()` says."""
     from .marketplaces.bloxswaps import BloxSwapsAdapter
-    return BloxSwapsAdapter(http, token=settings.bloxswaps_secrets.get("BLOXSWAPS_TOKEN", ""),
+    from .marketplaces.multi import MultiMarketAdapter
+    from .marketplaces.starpets import StarPetsAdapter
+    blox = BloxSwapsAdapter(http, token=settings.bloxswaps_secrets.get("BLOXSWAPS_TOKEN", ""),
                             timeout=settings.request_timeout_seconds,
                             secrets=settings.bloxswaps_secrets,
                             session_path=settings.data_dir / "bloxswaps_session.json")
+    stars = StarPetsAdapter(http, timeout=settings.request_timeout_seconds)
+    return MultiMarketAdapter({"bloxswaps": blox, "starpets": stars},
+                              enabled or (lambda: set(settings.markets)))
 
 
 async def run_service(settings: Settings):
@@ -285,12 +294,14 @@ async def _run_service(settings: Settings):
     store = Store(settings.db_path)
     # Short spacing: a claim makes 2-3 requests back to back and must not queue behind it.
     http = HttpClient(min_host_interval=0.2, default_timeout=settings.request_timeout_seconds)
-    adapter = build_adapter(settings, http)
+    holder = {}
+    adapter = build_adapter(settings, http, lambda: holder["w"].watchlist.markets())
     notifier = DiscordNotifier(settings.discord_webhook_url, username=settings.discord_username,
                                cooldown_seconds=settings.alert_cooldown_seconds,
                                mention=settings.discord_mention)
     notifier.start()
     watcher = Watcher(settings, store, adapter, notifier)
+    holder["w"] = watcher
     bot = None
     if settings.discord_bot_token:
         from .discord_bot import Commands, start_bot

@@ -142,6 +142,27 @@ class Commands:
         return head + f"Watching {len(entries)} item(s), mode **{self.s.mode}**:\n" \
             + "\n".join(lines)
 
+    def market(self, choice: str | None = None) -> str:
+        """Show, or switch, which marketplaces are polled. No restart needed."""
+        from .config import parse_markets
+        if choice:
+            markets = parse_markets(choice)
+            if markets is None:
+                return "Choose bloxswaps, starpets or both."
+            self.watchlist.set_markets(markets)
+            head = "Now polling "
+        else:
+            markets = self.watchlist.markets()
+            head = "Polling "
+        lines = [head + " and ".join(m.capitalize() for m in sorted(markets)) + "."]
+        if "starpets" in markets:
+            lines.append("StarPets matches are sent as alerts only (no claims there yet).")
+        errors = getattr(self.adapter, "errors", {})
+        for m in sorted(markets):
+            if errors.get(m):
+                lines.append(f"⚠️ {m.capitalize()} last poll failed: {errors[m][:150]}")
+        return "\n".join(lines)
+
     def pause(self) -> str:
         self.watchlist.set_paused(True)
         return "⏸️ Paused. Nothing is polled or claimed until /watch resume."
@@ -179,7 +200,9 @@ class Commands:
     def status(self) -> str:
         st = self.adapter.status
         hold = self.store.get_hold()
-        lines = [f"Mode **{self.s.mode}**, watching {len(self.store.watch_entries())} item(s).",
+        markets = ", ".join(sorted(self.watchlist.markets()))
+        lines = [f"Mode **{self.s.mode}**, watching {len(self.store.watch_entries())} item(s), "
+                 f"markets: {markets}.",
                  "⏸️ Paused from Discord." if self.watchlist.paused else "Running."]
         if hold:
             lines.append(f"Waiting for the trade of **{_md(hold.name)}** to finish.")
@@ -282,6 +305,13 @@ def build_tree(client, commands: Commands, guild=None):
             return
         await interaction.response.defer(ephemeral=True, thinking=True)
         await reply(interaction, await commands.balance())
+
+    @tree.command(name="market", description="Which marketplaces to snipe on", guild=guild)
+    @app_commands.describe(choice="leave empty to see the current choice")
+    async def market(interaction: discord.Interaction,
+                     choice: Literal["bloxswaps", "starpets", "both"] | None = None):
+        if await guard(interaction):
+            await reply(interaction, commands.market(choice))
 
     @tree.command(name="status", description="Sniper status", guild=guild)
     async def status(interaction: discord.Interaction):

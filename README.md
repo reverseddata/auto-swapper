@@ -62,6 +62,18 @@ Run `mm2sniper probe` to confirm every name matches something.
 Global caps in `.env` apply to every item: `MAX_CLAIM_PRICE` (largest single
 withdraw) and `MAX_DAILY_SPEND` (per UTC day).
 
+### Marketplaces: BloxSwaps and StarPets
+
+`MARKETS=bloxswaps` (default), `starpets` or `both`. Or switch any time in Discord with
+`/market bloxswaps|starpets|both`, for example when BloxSwaps is down. If one market
+fails, the other keeps being watched.
+
+* **BloxSwaps**: alerts and claims.
+* **StarPets Swap**: **alerts only.** Its item list is public, but its claim requests
+  and login have not been captured yet, so the bot never guesses them on your
+  account. A match there pings Discord and you swap by hand. StarPets is checked at
+  most every 20 seconds.
+
 ### Managing items from Discord (recommended on Railway)
 
 With a Discord bot, you change the watchlist with slash commands. No env edits and
@@ -74,7 +86,8 @@ no redeploys. Changes apply on the next poll.
 | `/watch list` | Show what is watched |
 | `/watch pause` / `/watch resume` | Stop / restart sniping |
 | `/balance` | Your BloxSwaps account and balance |
-| `/status` | Mode, pause, open claim, last poll |
+| `/market` | Show or switch markets: bloxswaps, starpets, both |
+| `/status` | Mode, markets, pause, open claim, last poll |
 
 Example: `/watch add item:Harvester side:withdraw max:330`
 

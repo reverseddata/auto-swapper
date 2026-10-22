@@ -22,6 +22,18 @@ from .models import norm_name
 from .notify import register_secret
 
 MODES = ("monitor", "claim")
+MARKETS = ("bloxswaps", "starpets")
+
+
+def parse_markets(value: str) -> set[str] | None:
+    """"bloxswaps", "starpets", "both" or "bloxswaps,starpets" -> set; None if invalid."""
+    v = (value or "").strip().lower()
+    if v in ("", "bloxswaps"):
+        return {"bloxswaps"}
+    if v in ("both", "all"):
+        return set(MARKETS)
+    parts = {p.strip() for p in v.replace("+", ",").split(",") if p.strip()}
+    return parts if parts and parts <= set(MARKETS) else None
 MIN_POLL_INTERVAL = 0.0
 WEBHOOK_RE = re.compile(
     r"^https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+$")
@@ -89,6 +101,7 @@ class Settings:
     discord_username: str = "MM2 Sniper"
     discord_mention: str = ""                   # "<@id>" pinged on claims
     discord_owner_id: str = ""                  # the only user allowed to run commands
+    markets: set = field(default_factory=lambda: {"bloxswaps"})  # polled marketplaces
     # Discord bot for /watch commands. Optional; unset = webhook alerts only.
     discord_bot_token: str = field(default="", repr=False)
     discord_guild_id: str = ""                  # optional: commands appear instantly here
@@ -122,6 +135,7 @@ class Settings:
     def redacted(self) -> dict:
         return {
             "mode": self.mode,
+            "markets": sorted(self.markets),
             "discord_webhook": "set" if self.discord_webhook_url else "not set",
             "discord_bot": "set" if self.discord_bot_token else "not set",
             "poll_interval_seconds": self.poll_interval_seconds,
@@ -208,6 +222,11 @@ def load_settings(config_file: str | os.PathLike | None = None,
         problems.append(f"MODE must be one of: {', '.join(MODES)} (got {mode!r})")
         mode = "monitor"
     s.mode = mode
+    markets = parse_markets(str(pick("MARKETS", "markets") or ""))
+    if markets is None:
+        problems.append("MARKETS must be bloxswaps, starpets or both")
+        markets = {"bloxswaps"}
+    s.markets = markets
     s.data_dir = Path(pick("DATA_DIR", "data_dir") or "data")
     s.log_dir = Path(pick("LOG_DIR", "log_dir") or "logs")
     level = str(pick("LOG_LEVEL", "log_level") or "INFO").strip().upper()

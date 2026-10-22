@@ -239,7 +239,7 @@ def test_slash_commands_are_registered_and_guarded(tmp_path):
         return names, sub, stranger, owner
 
     names, sub, stranger, owner = asyncio.run(go())
-    assert names == {"watch", "balance", "status"}
+    assert names == {"watch", "balance", "status", "market"}
     assert sub == {"add", "remove", "list", "pause", "resume"}
     assert stranger == [("You are not allowed to use this bot.", True)]
     assert owner and owner[0][1] is True and "Watching" in owner[0][0]
